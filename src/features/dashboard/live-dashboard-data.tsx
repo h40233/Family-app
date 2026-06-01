@@ -151,7 +151,7 @@ export function LiveDashboardData() {
 
 function AuthPanel({ onAuthenticated }: { onAuthenticated: () => void }) {
   const [mode, setMode] = useState<AuthMode>("login");
-  const [displayName, setDisplayName] = useState("Development User");
+  const [displayName, setDisplayName] = useState("家庭管理者");
   const [email, setEmail] = useState("dev@family-os.local");
   const [password, setPassword] = useState("pass1234");
   const [message, setMessage] = useState<string | null>(null);

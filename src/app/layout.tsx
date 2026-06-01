@@ -4,13 +4,13 @@ import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-regis
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Family OS",
-  description: "Family finance, tasks, points and wishes in one household app.",
-  applicationName: "Family OS",
+  title: "家庭 OS",
+  description: "整合家庭記帳、任務、點數與願望管理的家庭 App。",
+  applicationName: "家庭 OS",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Family OS",
+    title: "家庭 OS",
     statusBarStyle: "default"
   },
   icons: {

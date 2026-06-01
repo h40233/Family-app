@@ -27,14 +27,14 @@ type AuthSessionStore = {
 
 const placeholderUser: AuthUser = {
   id: devFixtureIds.ownerUser,
-  displayName: "Development User",
+  displayName: "家庭管理者",
   email: "dev@family-os.local",
   isChildAccount: false
 };
 
 const childUser: AuthUser = {
   id: devFixtureIds.childUser,
-  displayName: "Development Child",
+  displayName: "小孩帳號",
   email: null,
   isChildAccount: true
 };

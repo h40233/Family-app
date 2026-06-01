@@ -12,14 +12,14 @@ type PlanStatus = {
 
 const placementCopy: Record<Placement, { title: string; body: string; action: string }> = {
   "dashboard-feed": {
-    title: "Family Plus removes ads",
-    body: "Keep chores, points, money, and wishes in one quieter workspace.",
-    action: "Upgrade"
+    title: "升級後可移除廣告",
+    body: "讓任務、點數、記帳與願望管理保持更安靜的使用體驗。",
+    action: "升級"
   },
   "reports-bottom": {
-    title: "Unlock clean reports",
-    body: "Paid families get exports, longer history, advanced reports, and no ad placements.",
-    action: "View plan"
+    title: "解鎖完整報表",
+    body: "付費家庭可使用匯出、長期歷史、進階報表，並移除廣告。",
+    action: "查看方案"
   }
 };
 
@@ -54,9 +54,9 @@ export function AdPlacement({ placement }: { placement: Placement }) {
   const copy = placementCopy[placement];
 
   return (
-    <aside className={`ad-placement ad-placement-${placement}`} aria-label="Sponsored">
+    <aside className={`ad-placement ad-placement-${placement}`} aria-label="贊助內容">
       <div>
-        <span className="ad-label">Sponsored</span>
+        <span className="ad-label">贊助內容</span>
         <strong>{copy.title}</strong>
         <p>{copy.body}</p>
       </div>
@@ -68,6 +68,6 @@ export function AdPlacement({ placement }: { placement: Placement }) {
 async function fetchData<T>(url: string): Promise<T> {
   const response = await fetch(url);
   const body = (await response.json()) as ApiEnvelope<T>;
-  if (!response.ok) throw new Error("Request failed.");
+  if (!response.ok) throw new Error("請求失敗。");
   return body.data;
 }

@@ -19,7 +19,7 @@ async function main() {
   await prisma.user.upsert({
     where: { id: ids.ownerUser },
     update: {
-      name: "Development User",
+      name: "家庭管理者",
       email: "dev@family-os.local",
       passwordHash: hashPassword("pass1234"),
       isChildAccount: false,
@@ -29,7 +29,7 @@ async function main() {
     },
     create: {
       id: ids.ownerUser,
-      name: "Development User",
+      name: "家庭管理者",
       email: "dev@family-os.local",
       passwordHash: hashPassword("pass1234"),
       isChildAccount: false,
@@ -40,7 +40,7 @@ async function main() {
   await prisma.user.upsert({
     where: { id: ids.childUser },
     update: {
-      name: "Development Child",
+      name: "小孩帳號",
       isChildAccount: true,
       parentUserId: ids.ownerUser,
       isAdmin: false,
@@ -49,7 +49,7 @@ async function main() {
     },
     create: {
       id: ids.childUser,
-      name: "Development Child",
+      name: "小孩帳號",
       email: null,
       passwordHash: null,
       isChildAccount: true,
@@ -61,13 +61,13 @@ async function main() {
   await prisma.family.upsert({
     where: { id: ids.family },
     update: {
-      name: "Development Family",
+      name: "示範家庭",
       plan: PlanType.FREE,
       ownerUserId: ids.ownerUser
     },
     create: {
       id: ids.family,
-      name: "Development Family",
+      name: "示範家庭",
       plan: PlanType.FREE,
       ownerUserId: ids.ownerUser
     }
@@ -132,14 +132,14 @@ async function main() {
   await prisma.personalAccount.upsert({
     where: { id: ids.cashAccount },
     update: {
-      name: "Cash",
+      name: "現金",
       type: "cash",
       balance: 1000
     },
     create: {
       id: ids.cashAccount,
       userId: ids.ownerUser,
-      name: "Cash",
+      name: "現金",
       type: "cash",
       balance: 1000
     }
@@ -148,14 +148,14 @@ async function main() {
   await prisma.personalAccount.upsert({
     where: { id: ids.bankAccount },
     update: {
-      name: "Bank A",
+      name: "銀行 A",
       type: "bank",
       balance: 50000
     },
     create: {
       id: ids.bankAccount,
       userId: ids.ownerUser,
-      name: "Bank A",
+      name: "銀行 A",
       type: "bank",
       balance: 50000
     }
@@ -164,7 +164,7 @@ async function main() {
   await prisma.category.upsert({
     where: { id: ids.foodCategory },
     update: {
-      name: "Food",
+      name: "餐飲",
       type: "expense",
       scope: "personal"
     },
@@ -173,14 +173,14 @@ async function main() {
       userId: ids.ownerUser,
       scope: "personal",
       type: "expense",
-      name: "Food"
+      name: "餐飲"
     }
   });
 
   await prisma.category.upsert({
     where: { id: ids.fundCategory },
     update: {
-      name: "Family Fund",
+      name: "家庭基金",
       type: "deposit",
       scope: "shared_fund"
     },
@@ -189,14 +189,14 @@ async function main() {
       familyId: ids.family,
       scope: "shared_fund",
       type: "deposit",
-      name: "Family Fund"
+      name: "家庭基金"
     }
   });
 
   await prisma.personalTransaction.upsert({
     where: { id: ids.breakfastTransaction },
     update: {
-      note: "Breakfast",
+      note: "早餐",
       amount: 80,
       occurredAt: timestamp
     },
@@ -207,7 +207,7 @@ async function main() {
       type: MoneyTransactionType.EXPENSE,
       categoryId: ids.foodCategory,
       amount: 80,
-      note: "Breakfast",
+      note: "早餐",
       occurredAt: timestamp
     }
   });
@@ -215,7 +215,7 @@ async function main() {
   await prisma.budget.upsert({
     where: { id: ids.foodBudget },
     update: {
-      name: "Monthly Food Budget",
+      name: "每月餐飲預算",
       amount: 3000,
       periodType: "monthly",
       startAt: new Date("2026-05-01T00:00:00.000Z"),
@@ -225,7 +225,7 @@ async function main() {
       id: ids.foodBudget,
       familyId: ids.family,
       userId: ids.ownerUser,
-      name: "Monthly Food Budget",
+      name: "每月餐飲預算",
       targetType: "personal_category",
       targetId: ids.foodCategory,
       amount: 3000,
@@ -238,14 +238,14 @@ async function main() {
   await prisma.sharedFund.upsert({
     where: { id: ids.dailyFund },
     update: {
-      name: "Daily Family Fund",
+      name: "日常家庭基金",
       balance: 42000,
       permissions: {}
     },
     create: {
       id: ids.dailyFund,
       familyId: ids.family,
-      name: "Daily Family Fund",
+      name: "日常家庭基金",
       balance: 42000,
       permissions: {},
       createdBy: ids.ownerUser
@@ -256,7 +256,7 @@ async function main() {
     where: { id: ids.fundDeposit },
     update: {
       amount: 42000,
-      note: "Initial fund",
+      note: "初始基金",
       occurredAt: timestamp
     },
     create: {
@@ -267,7 +267,7 @@ async function main() {
       type: FundTransactionType.DEPOSIT,
       categoryId: ids.fundCategory,
       amount: 42000,
-      note: "Initial fund",
+      note: "初始基金",
       occurredAt: timestamp
     }
   });
@@ -275,16 +275,16 @@ async function main() {
   await prisma.task.upsert({
     where: { id: ids.autoTask },
     update: {
-      title: "Take out trash",
-      description: "Daily chore",
+      title: "倒垃圾",
+      description: "每日家務",
       maxPoints: 10,
       approvalMode: TaskApprovalMode.AUTO
     },
     create: {
       id: ids.autoTask,
       familyId: ids.family,
-      title: "Take out trash",
-      description: "Daily chore",
+      title: "倒垃圾",
+      description: "每日家務",
       maxPoints: 10,
       approvalMode: TaskApprovalMode.AUTO,
       createdBy: ids.ownerUser
@@ -324,7 +324,7 @@ async function main() {
     where: { id: ids.wish5090 },
     update: {
       title: "RTX 5090",
-      description: "Dad's wish",
+      description: "爸爸的願望",
       status: WishStatus.ACTIVE,
       agreedPoints: 50000
     },
@@ -334,7 +334,7 @@ async function main() {
       requesterId: ids.ownerUser,
       fulfillerId: ids.ownerUser,
       title: "RTX 5090",
-      description: "Dad's wish",
+      description: "爸爸的願望",
       status: WishStatus.ACTIVE,
       agreedPoints: 50000
     }
@@ -343,20 +343,20 @@ async function main() {
   await prisma.notification.upsert({
     where: { id: ids.welcomeNotification },
     update: {
-      title: "Welcome to Family OS",
-      body: "The MVP notification center is connected to backend data."
+      title: "歡迎使用家庭 OS",
+      body: "MVP 通知中心已串接後端資料。"
     },
     create: {
       id: ids.welcomeNotification,
       userId: ids.ownerUser,
       familyId: ids.family,
       type: "points_changed",
-      title: "Welcome to Family OS",
-      body: "The MVP notification center is connected to backend data."
+      title: "歡迎使用家庭 OS",
+      body: "MVP 通知中心已串接後端資料。"
     }
   });
 
-  console.log("Seeded Family OS MVP database fixture.");
+  console.log("已建立家庭 OS MVP 示範資料。");
 }
 
 main()

@@ -1,7 +1,7 @@
 {
-  "name": "Family OS",
-  "short_name": "Family OS",
-  "description": "Family finance, tasks, points and wishes in one household app.",
+  "name": "家庭 OS",
+  "short_name": "家庭 OS",
+  "description": "整合家庭記帳、任務、點數與願望管理的家庭 App。",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -26,22 +26,22 @@
   ],
   "shortcuts": [
     {
-      "name": "Personal Money",
-      "short_name": "Money",
+      "name": "個人記帳",
+      "short_name": "記帳",
       "url": "/money/personal",
-      "description": "Open personal accounting."
+      "description": "開啟個人記帳。"
     },
     {
-      "name": "Tasks",
-      "short_name": "Tasks",
+      "name": "任務清單",
+      "short_name": "任務",
       "url": "/tasks",
-      "description": "Open family tasks."
+      "description": "開啟家庭任務。"
     },
     {
-      "name": "Wishes",
-      "short_name": "Wishes",
+      "name": "願望清單",
+      "short_name": "願望",
       "url": "/wishes",
-      "description": "Open wish rewards."
+      "description": "開啟願望與獎勵。"
     }
   ]
 }

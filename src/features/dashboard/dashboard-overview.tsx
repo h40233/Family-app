@@ -4,28 +4,28 @@ import { Can } from "@/components/permissions/can";
 import { LiveDashboardData } from "./live-dashboard-data";
 
 const summaryCards = [
-  { label: "Personal net worth", value: "$128,400" },
-  { label: "Shared fund balance", value: "$42,000" },
-  { label: "Open tasks", value: "7" },
-  { label: "Family points", value: "1,280" }
+  { label: "個人總資產", value: "$128,400" },
+  { label: "共用基金餘額", value: "$42,000" },
+  { label: "待完成任務", value: "7" },
+  { label: "家庭點數", value: "1,280" }
 ];
 
 const taskPreview = [
-  { title: "Take out trash", meta: "10 points, auto approval" },
-  { title: "Water balcony plants", meta: "20 points, review required" },
-  { title: "Log breakfast spending", meta: "Personal accounting" }
+  { title: "倒垃圾", meta: "10 點，自動發放" },
+  { title: "澆陽台植物", meta: "20 點，需要審核" },
+  { title: "記錄早餐支出", meta: "個人記帳" }
 ];
 
 export function DashboardOverview() {
   return (
     <>
       <PageHeader
-        eyebrow="Family Home"
-        title="Household Command Center"
-        description="A single place to scan money, shared funds, chores, points, wishes, and live MVP backend data."
+        eyebrow="家庭首頁"
+        title="家庭總覽"
+        description="集中查看記帳、共用基金、任務、點數、願望與即時後端資料。"
         action={
           <Can permission="personal.transactions.create">
-            <button type="button">Add transaction</button>
+            <button type="button">新增交易</button>
           </Can>
         }
       />
@@ -41,7 +41,7 @@ export function DashboardOverview() {
 
       <div className="content-grid">
         <section className="panel">
-          <h2>Today&apos;s Tasks</h2>
+          <h2>今日任務</h2>
           <ul className="task-list">
             {taskPreview.map((task) => (
               <li key={task.title}>
@@ -53,7 +53,7 @@ export function DashboardOverview() {
         </section>
 
         <section className="panel">
-          <h2>Wish Progress</h2>
+          <h2>願望進度</h2>
           <div className="wish-card">
             <span>RTX 5090</span>
             <strong>1280 / 50000</strong>

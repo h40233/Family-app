@@ -12,16 +12,16 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { href: "/", label: "Home", description: "Household dashboard" },
-  { href: "/money/personal", label: "Personal Money", description: "Accounts and transactions" },
-  { href: "/money/shared-funds", label: "Shared Funds", description: "Family fund balances" },
-  { href: "/tasks", label: "Tasks", description: "Chores and reviews" },
-  { href: "/points", label: "Points", description: "Balances and ledger" },
-  { href: "/wishes", label: "Wishes", description: "Family wish progress" },
-  { href: "/reports", label: "Reports", description: "Household reporting" },
-  { href: "/notifications", label: "Notifications", description: "Notification center" },
-  { href: "/billing", label: "Billing", description: "Plan, ads, and themes" },
-  { href: "/admin", label: "Admin", description: "Monitoring and operations" }
+  { href: "/", label: "首頁", description: "家庭總覽" },
+  { href: "/money/personal", label: "個人記帳", description: "帳戶與交易紀錄" },
+  { href: "/money/shared-funds", label: "共用基金", description: "家庭基金餘額" },
+  { href: "/tasks", label: "任務清單", description: "家務與審核" },
+  { href: "/points", label: "點數", description: "點數餘額與紀錄" },
+  { href: "/wishes", label: "願望清單", description: "願望與獎勵進度" },
+  { href: "/reports", label: "報表", description: "家庭統計報表" },
+  { href: "/notifications", label: "通知", description: "通知中心" },
+  { href: "/billing", label: "方案", description: "訂閱、廣告與主題" },
+  { href: "/admin", label: "管理後台", description: "監控與營運管理" }
 ];
 
 function isActivePath(pathname: string, href: string) {
@@ -37,10 +37,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar" aria-label="Main navigation">
-        <Link href="/" className="brand" aria-label="Family OS home">
-          <span className="brand-mark">F</span>
-          <span>Family OS</span>
+      <aside className="sidebar" aria-label="主選單">
+        <Link href="/" className="brand" aria-label="Family OS 首頁">
+          <span className="brand-mark">家</span>
+          <span>家庭 OS</span>
         </Link>
 
         <nav className="nav-list">

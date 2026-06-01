@@ -48,10 +48,10 @@ export function InterstitialAd() {
   return (
     <div className="interstitial-ad" role="status" aria-live="polite">
       <div>
-        <span className="ad-label">Sponsored</span>
-        <strong>Free plan message</strong>
-        <p>Upgrade to Family Plus to remove interstitials across the household app.</p>
-        <a href="/billing">View plan</a>
+        <span className="ad-label">贊助內容</span>
+        <strong>免費方案提示</strong>
+        <p>升級 Family Plus 後可移除家庭 App 內的切頁廣告。</p>
+        <a href="/billing">查看方案</a>
       </div>
     </div>
   );
@@ -60,6 +60,6 @@ export function InterstitialAd() {
 async function fetchData<T>(url: string): Promise<T> {
   const response = await fetch(url);
   const body = (await response.json()) as ApiEnvelope<T>;
-  if (!response.ok) throw new Error("Request failed.");
+  if (!response.ok) throw new Error("請求失敗。");
   return body.data;
 }

@@ -10,9 +10,9 @@ const themes: Array<{
   paid: boolean;
   colors: string[];
 }> = [
-  { id: "classic", name: "Classic", paid: false, colors: ["#f7f7f4", "#2f7d68", "#e3a93b"] },
-  { id: "ocean", name: "Ocean", paid: true, colors: ["#eef7fb", "#1d6f8f", "#e08e45"] },
-  { id: "sunset", name: "Sunset", paid: true, colors: ["#fff6f0", "#9b4d4d", "#3c6e71"] }
+  { id: "classic", name: "經典", paid: false, colors: ["#f7f7f4", "#2f7d68", "#e3a93b"] },
+  { id: "ocean", name: "海洋", paid: true, colors: ["#eef7fb", "#1d6f8f", "#e08e45"] },
+  { id: "sunset", name: "日落", paid: true, colors: ["#fff6f0", "#9b4d4d", "#3c6e71"] }
 ];
 
 export function ThemePicker({
@@ -39,7 +39,7 @@ export function ThemePicker({
 
   return (
     <section className="panel theme-picker">
-      <h2>Theme Picker</h2>
+      <h2>主題設定</h2>
       <div className="theme-options" role="list">
         {themes.map((theme) => {
           const locked = theme.paid && !canUseMultipleThemes;
@@ -58,7 +58,7 @@ export function ThemePicker({
                   <i key={color} style={{ background: color }} />
                 ))}
               </span>
-              <small>{locked ? "Paid plan" : selected === theme.id ? "Active" : "Available"}</small>
+              <small>{locked ? "付費方案" : selected === theme.id ? "使用中" : "可使用"}</small>
             </button>
           );
         })}

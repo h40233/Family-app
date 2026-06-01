@@ -86,7 +86,7 @@ export function AdminDashboard() {
         auditLogs: auditLogs.auditLogs
       });
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Admin data could not load.");
+      setError(loadError instanceof Error ? loadError.message : "無法載入後台資料。");
     }
   }
 
@@ -115,11 +115,11 @@ export function AdminDashboard() {
       await fetchJson(`/api/v1/admin/users/${user.id}/${banned ? "ban" : "unban"}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ reason: "MVP admin action" })
+        body: JSON.stringify({ reason: "MVP 後台操作" })
       });
       await loadAdminData();
     } catch (banError) {
-      setError(banError instanceof Error ? banError.message : "User update failed.");
+      setError(banError instanceof Error ? banError.message : "使用者更新失敗。");
     } finally {
       setBusyId(null);
     }
@@ -141,7 +141,7 @@ export function AdminDashboard() {
       });
       await loadAdminData();
     } catch (adError) {
-      setError(adError instanceof Error ? adError.message : "Ad placement update failed.");
+      setError(adError instanceof Error ? adError.message : "廣告版位更新失敗。");
     } finally {
       setBusyId(null);
     }
@@ -151,30 +151,30 @@ export function AdminDashboard() {
     <>
       <header className="topbar">
         <div>
-          <p className="muted">Admin</p>
-          <h1>Monitoring</h1>
+          <p className="muted">管理後台</p>
+          <h1>營運監控</h1>
           <p className="page-description">
-            Basic operator dashboard for account health, families, ads and audit history.
+            查看帳號狀態、家庭資料、廣告版位與稽核紀錄。
           </p>
           {error ? <p className="error-text">{error}</p> : null}
         </div>
       </header>
 
-      <section className="summary-grid admin-summary" aria-label="Admin metrics">
-        <MetricCard label="Users" value={data.metrics?.users.total ?? 0} />
-        <MetricCard label="Families" value={data.metrics?.families.total ?? 0} />
-        <MetricCard label="Banned" value={data.metrics?.users.banned ?? 0} tone="danger" />
-        <MetricCard label="Activity" value={activityTotal} />
+      <section className="summary-grid admin-summary" aria-label="後台指標">
+        <MetricCard label="使用者" value={data.metrics?.users.total ?? 0} />
+        <MetricCard label="家庭" value={data.metrics?.families.total ?? 0} />
+        <MetricCard label="停權" value={data.metrics?.users.banned ?? 0} tone="danger" />
+        <MetricCard label="活動" value={activityTotal} />
       </section>
 
       <section className="content-grid admin-grid">
         <div className="panel">
-          <h2>Users</h2>
-          <div className="admin-table" role="table" aria-label="Admin users">
+          <h2>使用者</h2>
+          <div className="admin-table" role="table" aria-label="後台使用者">
             <div className="admin-table-row admin-table-head" role="row">
-              <span>Name</span>
-              <span>Status</span>
-              <span>Action</span>
+              <span>名稱</span>
+              <span>狀態</span>
+              <span>操作</span>
             </div>
             {data.users.map((user) => (
               <div className="admin-table-row" role="row" key={user.id}>
@@ -183,15 +183,15 @@ export function AdminDashboard() {
                   <small>{user.email ?? user.id}</small>
                 </span>
                 <span>
-                  {user.isAdmin ? "Admin" : user.isChildAccount ? "Child" : "Member"}
-                  {user.bannedAt ? <em> Banned</em> : null}
+                  {user.isAdmin ? "管理員" : user.isChildAccount ? "小孩帳號" : "成員"}
+                  {user.bannedAt ? <em> 已停權</em> : null}
                 </span>
                 <button
                   className={user.bannedAt ? "secondary-button" : "danger-button"}
                   disabled={busyId === user.id || user.isAdmin}
                   onClick={() => setBan(user, !user.bannedAt)}
                 >
-                  {user.bannedAt ? "Unban" : "Ban"}
+                  {user.bannedAt ? "解除停權" : "停權"}
                 </button>
               </div>
             ))}
@@ -199,13 +199,13 @@ export function AdminDashboard() {
         </div>
 
         <div className="panel">
-          <h2>Families</h2>
+          <h2>家庭</h2>
           <div className="module-list">
             {data.families.map((family) => (
               <div className="module-row" key={family.id}>
                 <span>{family.name}</span>
                 <small>
-                  {family.plan} plan - {family.memberCount} members
+                  {family.plan === "paid" ? "付費" : "免費"}方案 - {family.memberCount} 位成員
                 </small>
               </div>
             ))}
@@ -215,7 +215,7 @@ export function AdminDashboard() {
 
       <section className="content-grid admin-grid">
         <div className="panel">
-          <h2>Ads</h2>
+          <h2>廣告</h2>
           <div className="module-list">
             {data.ads.map((ad) => (
               <div className="module-row" key={ad.id}>
@@ -228,7 +228,7 @@ export function AdminDashboard() {
                   disabled={busyId === ad.id}
                   onClick={() => toggleAd(ad)}
                 >
-                  {ad.enabled ? "Disable" : "Enable"}
+                  {ad.enabled ? "停用" : "啟用"}
                 </button>
               </div>
             ))}
@@ -236,7 +236,7 @@ export function AdminDashboard() {
         </div>
 
         <div className="panel">
-          <h2>Audit Log</h2>
+          <h2>稽核紀錄</h2>
           <div className="module-list">
             {data.auditLogs.length ? (
               data.auditLogs.map((log) => (
@@ -248,7 +248,7 @@ export function AdminDashboard() {
                 </div>
               ))
             ) : (
-              <p className="muted">No admin audit entries yet.</p>
+              <p className="muted">目前沒有後台稽核紀錄。</p>
             )}
           </div>
         </div>
@@ -279,7 +279,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const payload = await response.json();
 
   if (!response.ok) {
-    throw new Error(payload.error?.message ?? "Request failed.");
+    throw new Error(payload.error?.message ?? "請求失敗。");
   }
 
   return payload.data as T;

@@ -36,7 +36,7 @@ export async function apiRequest<T>(url: string, init?: RequestInit): Promise<T>
 
   if (!response.ok || payload.error) {
     throw new ApiClientError(
-      payload.error?.message ?? "Request failed.",
+      payload.error?.message ?? "請求失敗。",
       payload.error?.code ?? "REQUEST_FAILED",
       response.status,
       payload.error?.details
@@ -66,7 +66,7 @@ export function formatDateTime(value: string) {
 export function errorMessage(error: unknown) {
   if (error instanceof ApiClientError) {
     if (error.status === 403 || error.code === "PERMISSION_DENIED") {
-      return "你目前沒有權限執行這個操作。";
+      return "你沒有執行此操作的權限。";
     }
 
     return error.message;
@@ -76,5 +76,5 @@ export function errorMessage(error: unknown) {
     return error.message;
   }
 
-  return "操作失敗，請稍後再試。";
+  return "發生未知錯誤，請稍後再試。";
 }
