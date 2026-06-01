@@ -1,0 +1,47 @@
+{
+  "name": "Family OS",
+  "short_name": "Family OS",
+  "description": "Family finance, tasks, points and wishes in one household app.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f3ea",
+  "theme_color": "#27615f",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "productivity", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Personal Money",
+      "short_name": "Money",
+      "url": "/money/personal",
+      "description": "Open personal accounting."
+    },
+    {
+      "name": "Tasks",
+      "short_name": "Tasks",
+      "url": "/tasks",
+      "description": "Open family tasks."
+    },
+    {
+      "name": "Wishes",
+      "short_name": "Wishes",
+      "url": "/wishes",
+      "description": "Open wish rewards."
+    }
+  ]
+}

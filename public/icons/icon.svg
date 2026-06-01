@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Family OS">
+  <rect width="512" height="512" rx="96" fill="#f7f3ea"/>
+  <path d="M96 244 256 112l160 132v156a32 32 0 0 1-32 32H128a32 32 0 0 1-32-32V244Z" fill="#27615f"/>
+  <path d="M168 276a48 48 0 1 0 96 0 48 48 0 0 0-96 0Zm112 0a40 40 0 1 0 80 0 40 40 0 0 0-80 0Z" fill="#f7f3ea"/>
+  <path d="M156 388c12-44 42-68 84-68s72 24 84 68H156Z" fill="#f7f3ea"/>
+  <path d="M276 388c8-32 30-52 62-52 30 0 52 20 62 52H276Z" fill="#f7f3ea" opacity=".86"/>
+</svg>

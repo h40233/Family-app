@@ -1,0 +1,574 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum FamilyRole {
+  OWNER  @map("owner")
+  ADMIN  @map("admin")
+  MEMBER @map("member")
+  CHILD  @map("child")
+  VIEWER @map("viewer")
+
+  @@map("family_role")
+}
+
+enum MoneyTransactionType {
+  INCOME  @map("income")
+  EXPENSE @map("expense")
+
+  @@map("money_transaction_type")
+}
+
+enum FundTransactionType {
+  DEPOSIT @map("deposit")
+  EXPENSE @map("expense")
+
+  @@map("fund_transaction_type")
+}
+
+enum TaskApprovalMode {
+  AUTO   @map("auto")
+  REVIEW @map("review")
+
+  @@map("task_approval_mode")
+}
+
+enum TaskCompletionStatus {
+  PENDING_REVIEW @map("pending_review")
+  APPROVED       @map("approved")
+  REJECTED       @map("rejected")
+
+  @@map("task_completion_status")
+}
+
+enum WishStatus {
+  SUBMITTED                    @map("submitted")
+  REJECTED                     @map("rejected")
+  PRICING                      @map("pricing")
+  PRICE_PENDING_REQUESTER      @map("price_pending_requester")
+  ACTIVE                       @map("active")
+  PRICE_CHANGE_PENDING         @map("price_change_pending")
+  REDEEMED_PENDING_FULFILLMENT @map("redeemed_pending_fulfillment")
+  COMPLETED                    @map("completed")
+  CANCELLED                    @map("cancelled")
+
+  @@map("wish_status")
+}
+
+enum PlanType {
+  FREE @map("free")
+  PAID @map("paid")
+
+  @@map("plan_type")
+}
+
+enum SharingLevel {
+  NONE                 @map("none")
+  BALANCE_ONLY         @map("balance_only")
+  CATEGORY_SUMMARY     @map("category_summary")
+  PARTIAL_TRANSACTIONS @map("partial_transactions")
+  FULL                 @map("full")
+
+  @@map("sharing_level")
+}
+
+model User {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  email          String?   @unique
+  passwordHash   String?   @map("password_hash")
+  isChildAccount Boolean   @default(false) @map("is_child_account")
+  isAdmin        Boolean   @default(false) @map("is_admin")
+  bannedAt       DateTime? @map("banned_at") @db.Timestamptz(6)
+  bannedReason   String?   @map("banned_reason")
+  parentUserId   String?   @map("parent_user_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  parent                  User?                    @relation("ChildAccounts", fields: [parentUserId], references: [id])
+  childAccounts           User[]                   @relation("ChildAccounts")
+  ownedFamilies           Family[]                 @relation("FamilyOwner")
+  familyMemberships       FamilyMember[]
+  personalAccounts        PersonalAccount[]
+  personalTransactions    PersonalTransaction[]
+  personalSharingSettings PersonalSharingSetting[]
+  categories              Category[]
+  budgets                 Budget[]
+  createdSharedFunds      SharedFund[]             @relation("SharedFundCreator")
+  fundTransactions        FundTransaction[]        @relation("FundTransactionActor")
+  createdTasks            Task[]                   @relation("TaskCreator")
+  reviewTasks             Task[]                   @relation("TaskReviewer")
+  taskAssignments         TaskAssignment[]
+  taskCompletions         TaskCompletion[]         @relation("TaskCompletedBy")
+  reviewedCompletions     TaskCompletion[]         @relation("TaskReviewedBy")
+  pointLedgerEntries      PointLedger[]            @relation("PointLedgerUser")
+  createdPointLedger      PointLedger[]            @relation("PointLedgerCreator")
+  pointBalances           PointBalance[]
+  requestedWishes         Wish[]                   @relation("WishRequester")
+  fulfilledWishes         Wish[]                   @relation("WishFulfiller")
+  wishPriceProposals      WishPriceProposal[]      @relation("WishPriceProposer")
+  wishRedemptions         WishRedemption[]         @relation("WishRedemptionRequester")
+  notifications           Notification[]
+  pushSubscriptions       PushSubscription[]
+  auditLogs               AuditLog[]               @relation("AuditActor")
+  authSessions            AuthSession[]
+
+  @@index([parentUserId])
+  @@map("users")
+}
+
+model AuthSession {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  issuedAt  DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+model Family {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  plan        PlanType  @default(FREE)
+  ownerUserId String    @map("owner_user_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  owner                   User                     @relation("FamilyOwner", fields: [ownerUserId], references: [id])
+  members                 FamilyMember[]
+  rolePermissions         FamilyRolePermission[]
+  resourcePermissions     ResourcePermission[]
+  personalSharingSettings PersonalSharingSetting[]
+  sharedFunds             SharedFund[]
+  fundTransactions        FundTransaction[]
+  categories              Category[]
+  budgets                 Budget[]
+  tasks                   Task[]
+  pointLedgerEntries      PointLedger[]
+  pointBalances           PointBalance[]
+  wishes                  Wish[]
+  wishRedemptions         WishRedemption[]
+  notifications           Notification[]
+  auditLogs               AuditLog[]
+
+  @@index([ownerUserId])
+  @@map("families")
+}
+
+model FamilyRolePermission {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId    String     @map("family_id") @db.Uuid
+  role        FamilyRole
+  permissions Json       @default("[]") @db.JsonB
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  family Family @relation(fields: [familyId], references: [id])
+
+  @@unique([familyId, role])
+  @@index([familyId])
+  @@map("family_role_permissions")
+}
+
+model FamilyMember {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId    String     @map("family_id") @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  role        FamilyRole
+  permissions Json       @default("{}") @db.JsonB
+  joinedAt    DateTime   @default(now()) @map("joined_at") @db.Timestamptz(6)
+  deletedAt   DateTime?  @map("deleted_at") @db.Timestamptz(6)
+
+  family Family @relation(fields: [familyId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([familyId, userId])
+  @@index([userId])
+  @@map("family_members")
+}
+
+model ResourcePermission {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId     String   @map("family_id") @db.Uuid
+  resourceType String   @map("resource_type")
+  resourceId   String   @map("resource_id") @db.Uuid
+  subjectType  String   @map("subject_type")
+  subjectId    String   @map("subject_id")
+  permissions  Json     @default("{}") @db.JsonB
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  family Family @relation(fields: [familyId], references: [id])
+
+  @@index([familyId, resourceType, resourceId])
+  @@index([familyId, subjectType, subjectId])
+  @@map("resource_permissions")
+}
+
+model PersonalAccount {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  name      String
+  type      String
+  balance   Decimal   @default(0) @db.Decimal(14, 2)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user         User                  @relation(fields: [userId], references: [id])
+  transactions PersonalTransaction[]
+
+  @@index([userId])
+  @@map("personal_accounts")
+}
+
+model PersonalTransaction {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId        String               @map("account_id") @db.Uuid
+  userId           String               @map("user_id") @db.Uuid
+  clientMutationId String?              @map("client_mutation_id") @db.Uuid
+  type             MoneyTransactionType
+  categoryId       String?              @map("category_id") @db.Uuid
+  amount           Decimal              @db.Decimal(14, 2)
+  note             String               @default("")
+  occurredAt       DateTime             @map("occurred_at") @db.Timestamptz(6)
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?            @map("deleted_at") @db.Timestamptz(6)
+
+  account  PersonalAccount @relation(fields: [accountId], references: [id])
+  user     User            @relation(fields: [userId], references: [id])
+  category Category?       @relation(fields: [categoryId], references: [id])
+
+  @@index([accountId, occurredAt(sort: Desc)])
+  @@index([userId, clientMutationId])
+  @@index([categoryId])
+  @@map("personal_transactions")
+}
+
+model PersonalSharingSetting {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String       @map("user_id") @db.Uuid
+  familyId     String       @map("family_id") @db.Uuid
+  sharingLevel SharingLevel @default(NONE) @map("sharing_level")
+  config       Json         @default("{}") @db.JsonB
+  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user   User   @relation(fields: [userId], references: [id])
+  family Family @relation(fields: [familyId], references: [id])
+
+  @@unique([userId, familyId])
+  @@index([familyId])
+  @@map("personal_sharing_settings")
+}
+
+model SharedFund {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId    String    @map("family_id") @db.Uuid
+  name        String
+  balance     Decimal   @default(0) @db.Decimal(14, 2)
+  permissions Json      @default("{}") @db.JsonB
+  createdBy   String    @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  family       Family            @relation(fields: [familyId], references: [id])
+  creator      User              @relation("SharedFundCreator", fields: [createdBy], references: [id])
+  transactions FundTransaction[]
+
+  @@index([familyId])
+  @@index([createdBy])
+  @@map("shared_funds")
+}
+
+model FundTransaction {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId    String              @map("family_id") @db.Uuid
+  fundId      String              @map("fund_id") @db.Uuid
+  actorUserId String              @map("actor_user_id") @db.Uuid
+  type        FundTransactionType
+  categoryId  String?             @map("category_id") @db.Uuid
+  amount      Decimal             @db.Decimal(14, 2)
+  note        String              @default("")
+  occurredAt  DateTime            @map("occurred_at") @db.Timestamptz(6)
+  createdAt   DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  family   Family     @relation(fields: [familyId], references: [id])
+  fund     SharedFund @relation(fields: [fundId], references: [id])
+  actor    User       @relation("FundTransactionActor", fields: [actorUserId], references: [id])
+  category Category?  @relation(fields: [categoryId], references: [id])
+
+  @@index([fundId, occurredAt(sort: Desc)])
+  @@index([familyId])
+  @@index([actorUserId])
+  @@index([categoryId])
+  @@map("fund_transactions")
+}
+
+model Category {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId  String?  @map("family_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  scope     String
+  type      String
+  name      String
+  icon      String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  family               Family?               @relation(fields: [familyId], references: [id])
+  user                 User?                 @relation(fields: [userId], references: [id])
+  personalTransactions PersonalTransaction[]
+  fundTransactions     FundTransaction[]
+
+  @@index([familyId])
+  @@index([userId])
+  @@map("categories")
+}
+
+model Budget {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId   String?   @map("family_id") @db.Uuid
+  userId     String?   @map("user_id") @db.Uuid
+  name       String    @default("Budget")
+  targetType String    @map("target_type")
+  targetId   String?   @map("target_id") @db.Uuid
+  amount     Decimal   @db.Decimal(14, 2)
+  periodType String    @map("period_type")
+  startAt    DateTime  @map("start_at") @db.Timestamptz(6)
+  endAt      DateTime? @map("end_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  family Family? @relation(fields: [familyId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([familyId])
+  @@index([userId])
+  @@index([targetType, targetId])
+  @@map("budgets")
+}
+
+model Task {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId       String           @map("family_id") @db.Uuid
+  title          String
+  description    String           @default("")
+  maxPoints      Int              @map("max_points")
+  approvalMode   TaskApprovalMode @map("approval_mode")
+  reviewerUserId String?          @map("reviewer_user_id") @db.Uuid
+  dueAt          DateTime?        @map("due_at") @db.Timestamptz(6)
+  repeatRule     String?          @map("repeat_rule")
+  createdBy      String           @map("created_by") @db.Uuid
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?        @map("deleted_at") @db.Timestamptz(6)
+
+  family      Family           @relation(fields: [familyId], references: [id])
+  creator     User             @relation("TaskCreator", fields: [createdBy], references: [id])
+  reviewer    User?            @relation("TaskReviewer", fields: [reviewerUserId], references: [id])
+  assignments TaskAssignment[]
+  completions TaskCompletion[]
+
+  @@index([familyId, dueAt])
+  @@index([createdBy])
+  @@index([reviewerUserId])
+  @@map("tasks")
+}
+
+model TaskAssignment {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId String @map("task_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  task Task @relation(fields: [taskId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@map("task_assignments")
+}
+
+model TaskCompletion {
+  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId        String                @map("task_id") @db.Uuid
+  completedBy   String                @map("completed_by") @db.Uuid
+  status        TaskCompletionStatus?
+  awardedPoints Int?                  @map("awarded_points")
+  reviewedBy    String?               @map("reviewed_by") @db.Uuid
+  completedAt   DateTime              @default(now()) @map("completed_at") @db.Timestamptz(6)
+  reviewedAt    DateTime?             @map("reviewed_at") @db.Timestamptz(6)
+
+  task      Task  @relation(fields: [taskId], references: [id])
+  completer User  @relation("TaskCompletedBy", fields: [completedBy], references: [id])
+  reviewer  User? @relation("TaskReviewedBy", fields: [reviewedBy], references: [id])
+
+  @@index([taskId])
+  @@index([completedBy])
+  @@index([reviewedBy])
+  @@map("task_completions")
+}
+
+model PointLedger {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId          String   @map("family_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  delta             Int
+  reason            String
+  relatedEntityType String?  @map("related_entity_type")
+  relatedEntityId   String?  @map("related_entity_id") @db.Uuid
+  createdBy         String   @map("created_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  family  Family @relation(fields: [familyId], references: [id])
+  user    User   @relation("PointLedgerUser", fields: [userId], references: [id])
+  creator User   @relation("PointLedgerCreator", fields: [createdBy], references: [id])
+
+  @@index([familyId, userId, createdAt(sort: Desc)])
+  @@index([userId])
+  @@index([createdBy])
+  @@map("point_ledger")
+}
+
+model PointBalance {
+  familyId  String   @map("family_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  family Family @relation(fields: [familyId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@id([familyId, userId])
+  @@index([userId])
+  @@map("point_balances")
+}
+
+model Wish {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId     String     @map("family_id") @db.Uuid
+  requesterId  String     @map("requester_id") @db.Uuid
+  fulfillerId  String     @map("fulfiller_id") @db.Uuid
+  title        String
+  description  String     @default("")
+  status       WishStatus @default(SUBMITTED)
+  agreedPoints Int?       @map("agreed_points")
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(6)
+
+  family         Family              @relation(fields: [familyId], references: [id])
+  requester      User                @relation("WishRequester", fields: [requesterId], references: [id])
+  fulfiller      User                @relation("WishFulfiller", fields: [fulfillerId], references: [id])
+  priceProposals WishPriceProposal[]
+  redemptions    WishRedemption[]
+
+  @@index([familyId, requesterId])
+  @@index([familyId, fulfillerId])
+  @@index([requesterId])
+  @@index([fulfillerId])
+  @@map("wishes")
+}
+
+model WishPriceProposal {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wishId     String    @map("wish_id") @db.Uuid
+  proposedBy String    @map("proposed_by") @db.Uuid
+  points     Int
+  status     String    @default("pending")
+  note       String    @default("")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  wish     Wish @relation(fields: [wishId], references: [id])
+  proposer User @relation("WishPriceProposer", fields: [proposedBy], references: [id])
+
+  @@index([wishId])
+  @@index([proposedBy])
+  @@map("wish_price_proposals")
+}
+
+model WishRedemption {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wishId      String    @map("wish_id") @db.Uuid
+  familyId    String    @map("family_id") @db.Uuid
+  requesterId String    @map("requester_id") @db.Uuid
+  pointsSpent Int       @map("points_spent")
+  redeemedAt  DateTime  @default(now()) @map("redeemed_at") @db.Timestamptz(6)
+  fulfilledAt DateTime? @map("fulfilled_at") @db.Timestamptz(6)
+
+  wish      Wish   @relation(fields: [wishId], references: [id])
+  family    Family @relation(fields: [familyId], references: [id])
+  requester User   @relation("WishRedemptionRequester", fields: [requesterId], references: [id])
+
+  @@index([wishId])
+  @@index([familyId])
+  @@index([requesterId])
+  @@map("wish_redemptions")
+}
+
+model Notification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  familyId  String?   @map("family_id") @db.Uuid
+  type      String
+  title     String
+  body      String
+  data      Json      @default("{}") @db.JsonB
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user   User    @relation(fields: [userId], references: [id])
+  family Family? @relation(fields: [familyId], references: [id])
+
+  @@index([userId, readAt, createdAt(sort: Desc)])
+  @@index([familyId])
+  @@map("notifications")
+}
+
+model PushSubscription {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  endpoint  String
+  keys      Json     @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([endpoint])
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model AuditLog {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId     String?  @map("family_id") @db.Uuid
+  actorUserId  String?  @map("actor_user_id") @db.Uuid
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id") @db.Uuid
+  before       Json?    @db.JsonB
+  after        Json?    @db.JsonB
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  family Family? @relation(fields: [familyId], references: [id])
+  actor  User?   @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@index([familyId])
+  @@index([actorUserId])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}

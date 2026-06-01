@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: family-os-web
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run db:generate && npm run db:check && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: NEXT_PUBLIC_WEB_PUSH_PUBLIC_KEY
+        sync: false
+      - key: WEB_PUSH_PRIVATE_KEY
+        sync: false

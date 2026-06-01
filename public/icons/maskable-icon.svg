@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Family OS">
+  <rect width="512" height="512" fill="#27615f"/>
+  <circle cx="256" cy="256" r="196" fill="#f7f3ea"/>
+  <path d="M132 254 256 152l124 102v116a28 28 0 0 1-28 28H160a28 28 0 0 1-28-28V254Z" fill="#27615f"/>
+  <circle cx="218" cy="284" r="34" fill="#f7f3ea"/>
+  <circle cx="306" cy="284" r="28" fill="#f7f3ea"/>
+  <path d="M178 366c10-32 32-50 64-50s54 18 64 50H178Z" fill="#f7f3ea"/>
+  <path d="M286 366c8-24 24-38 48-38s40 14 48 38h-96Z" fill="#f7f3ea" opacity=".88"/>
+</svg>
