@@ -8,7 +8,13 @@ services:
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_VERSION
-        value: 24
+        value: "24"
+      - key: FAMILY_OS_DATA_SOURCE
+        value: database
+      - key: FAMILY_OS_BILLING_PROVIDER
+        value: mock
+      - key: WEB_PUSH_VAPID_SUBJECT
+        value: mailto:admin@example.com
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
