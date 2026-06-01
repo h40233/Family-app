@@ -2,7 +2,7 @@ services:
   - type: web
     name: family-os-web
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm ci && npm run db:generate && npm run db:check && npm run build
     startCommand: npm run start
     healthCheckPath: /api/v1/health
