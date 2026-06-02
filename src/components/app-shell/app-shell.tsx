@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { AuthStatus } from "@/components/auth/auth-status";
 import { InterstitialAd } from "@/components/billing/interstitial-ad";
 
 type NavItem = {
@@ -25,10 +26,7 @@ const navItems: NavItem[] = [
 ];
 
 function isActivePath(pathname: string, href: string) {
-  if (href === "/") {
-    return pathname === "/";
-  }
-
+  if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -38,7 +36,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="主選單">
-        <Link href="/" className="brand" aria-label="Family OS 首頁">
+        <Link href="/" className="brand" aria-label="家庭 OS 首頁">
           <span className="brand-mark">家</span>
           <span>家庭 OS</span>
         </Link>
@@ -60,6 +58,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+
+        <AuthStatus />
       </aside>
 
       <main className="dashboard">{children}</main>

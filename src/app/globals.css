@@ -122,6 +122,38 @@ button:disabled {
   color: white;
 }
 
+.sidebar-auth {
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+}
+
+.sidebar-auth small {
+  color: #b8c2cc;
+}
+
+.sidebar-auth strong {
+  color: white;
+  font-size: 0.95rem;
+}
+
+.sidebar-auth button,
+.sidebar-auth-link {
+  border-radius: var(--radius);
+  display: inline-flex;
+  font-size: 0.9rem;
+  justify-content: center;
+  padding: 0.65rem 0.8rem;
+}
+
+.sidebar-auth-link {
+  background: var(--accent);
+  color: #20150a;
+  font-weight: 800;
+}
+
 .dashboard {
   padding: 2rem;
 }

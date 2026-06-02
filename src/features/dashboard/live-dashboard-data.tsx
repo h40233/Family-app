@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { AuthForm } from "@/components/auth/auth-form";
 
 type ApiEnvelope<T> = {
   data: T;
@@ -45,17 +46,15 @@ type DashboardState =
       wishes: Wish[];
     };
 
-type AuthMode = "login" | "register";
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
 
   if (response.status === 401) {
     throw new Error("AUTH_REQUIRED");
   }
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`);
+    throw new Error(`API 請求失敗：${response.status}`);
   }
 
   const payload = (await response.json()) as ApiEnvelope<T>;
@@ -112,7 +111,13 @@ export function LiveDashboardData() {
   }
 
   if (state.status === "auth") {
-    return <AuthPanel onAuthenticated={() => setRefreshKey((value) => value + 1)} />;
+    return (
+      <section className="panel">
+        <h2>API 串接狀態</h2>
+        <p className="page-description">請先登入，系統會用 cookie session 存取家庭資料。</p>
+        <AuthForm onAuthenticated={() => setRefreshKey((value) => value + 1)} />
+      </section>
+    );
   }
 
   if (state.status === "error") {
@@ -145,96 +150,6 @@ export function LiveDashboardData() {
           <small>{state.wishes.length} 筆願望已由 `/wishes` API 載入</small>
         </div>
       </div>
-    </section>
-  );
-}
-
-function AuthPanel({ onAuthenticated }: { onAuthenticated: () => void }) {
-  const [mode, setMode] = useState<AuthMode>("login");
-  const [displayName, setDisplayName] = useState("家庭管理者");
-  const [email, setEmail] = useState("dev@family-os.local");
-  const [password, setPassword] = useState("pass1234");
-  const [message, setMessage] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setMessage(null);
-
-    try {
-      const body =
-        mode === "register"
-          ? { displayName, email, password }
-          : { email, password };
-
-      await fetchJson(`/api/v1/auth/${mode}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      onAuthenticated();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "登入失敗。");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <section className="panel">
-      <h2>API 串接狀態</h2>
-      <p className="page-description">請先登入或建立帳號，系統會用 cookie session 存取家庭資料。</p>
-      <div className="auth-toggle" role="tablist" aria-label="Auth mode">
-        <button
-          type="button"
-          className={mode === "login" ? undefined : "secondary-button"}
-          onClick={() => setMode("login")}
-        >
-          登入
-        </button>
-        <button
-          type="button"
-          className={mode === "register" ? undefined : "secondary-button"}
-          onClick={() => setMode("register")}
-        >
-          建立帳號
-        </button>
-      </div>
-      <form className="auth-form" onSubmit={submit}>
-        {mode === "register" ? (
-          <label>
-            顯示名稱
-            <input
-              value={displayName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              required
-            />
-          </label>
-        ) : null}
-        <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-        </label>
-        <label>
-          密碼
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
-        </label>
-        <button type="submit" disabled={submitting}>
-          {submitting ? "處理中" : mode === "register" ? "建立並登入" : "登入"}
-        </button>
-      </form>
-      {message ? <p className="error-text">{message}</p> : null}
     </section>
   );
 }
