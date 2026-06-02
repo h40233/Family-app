@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AuthForm } from "@/components/auth/auth-form";
 
 type ApiEnvelope<T> = {
@@ -21,6 +21,8 @@ type Task = {
   title: string;
   approvalMode: "auto" | "review";
   maxPoints: number;
+  status: "open" | "completed" | "cancelled";
+  dueAt?: string;
 };
 
 type PointBalance = {
@@ -34,6 +36,12 @@ type Wish = {
   agreedPoints?: number;
 };
 
+type ReportsSummary = {
+  monthlyExpenseByCategory: Array<{ category: string; amount: number }>;
+  accountBalances: Array<{ id: string; name: string; balance: number }>;
+  fundBalances: Array<{ id: string; name: string; balance: number }>;
+};
+
 type DashboardState =
   | { status: "loading" }
   | { status: "auth" }
@@ -44,6 +52,7 @@ type DashboardState =
       tasks: Task[];
       pointBalance: PointBalance;
       wishes: Wish[];
+      reports: ReportsSummary;
     };
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -77,14 +86,15 @@ export function LiveDashboardData() {
           throw new Error("目前帳號還沒有加入任何家庭。");
         }
 
-        const [tasks, pointBalance, wishes] = await Promise.all([
+        const [tasks, pointBalance, wishes, reports] = await Promise.all([
           fetchJson<Task[]>(`/api/v1/families/${family.id}/tasks`),
           fetchJson<PointBalance>(`/api/v1/families/${family.id}/points/me`),
-          fetchJson<Wish[]>(`/api/v1/families/${family.id}/wishes`)
+          fetchJson<Wish[]>(`/api/v1/families/${family.id}/wishes`),
+          fetchJson<ReportsSummary>(`/api/v1/families/${family.id}/reports/summary`)
         ]);
 
         if (!cancelled) {
-          setState({ status: "ready", family, tasks, pointBalance, wishes });
+          setState({ status: "ready", family, tasks, pointBalance, wishes, reports });
         }
       } catch (error) {
         if (!cancelled) {
@@ -104,8 +114,8 @@ export function LiveDashboardData() {
   if (state.status === "loading") {
     return (
       <section className="panel">
-        <h2>API 串接狀態</h2>
-        <p className="page-description">正在載入家庭、任務、點數與願望資料。</p>
+        <h2>即時資料</h2>
+        <p className="page-description">正在從後端載入家庭總覽。</p>
       </section>
     );
   }
@@ -113,8 +123,8 @@ export function LiveDashboardData() {
   if (state.status === "auth") {
     return (
       <section className="panel">
-        <h2>API 串接狀態</h2>
-        <p className="page-description">請先登入，系統會用 cookie session 存取家庭資料。</p>
+        <h2>需要登入</h2>
+        <p className="page-description">登入後才會顯示你的家庭資料。</p>
         <AuthForm onAuthenticated={() => setRefreshKey((value) => value + 1)} />
       </section>
     );
@@ -123,33 +133,114 @@ export function LiveDashboardData() {
   if (state.status === "error") {
     return (
       <section className="panel">
-        <h2>API 串接狀態</h2>
+        <h2>即時資料</h2>
         <p className="error-text">{state.message}</p>
       </section>
     );
   }
 
-  return (
-    <section className="panel">
-      <h2>API 串接狀態</h2>
-      <div className="module-list">
-        <div className="module-row">
-          <span>家庭</span>
-          <small>{state.family.name}</small>
-        </div>
-        <div className="module-row">
-          <span>任務</span>
-          <small>{state.tasks.length} 筆任務已由 `/tasks` API 載入</small>
-        </div>
-        <div className="module-row">
-          <span>點數</span>
-          <small>{state.pointBalance.balance} 點已由 `/points/me` API 載入</small>
-        </div>
-        <div className="module-row">
-          <span>願望</span>
-          <small>{state.wishes.length} 筆願望已由 `/wishes` API 載入</small>
-        </div>
-      </div>
-    </section>
+  return <ReadyDashboard state={state} />;
+}
+
+function ReadyDashboard({
+  state
+}: {
+  state: Extract<DashboardState, { status: "ready" }>;
+}) {
+  const accountTotal = useMemo(
+    () => state.reports.accountBalances.reduce((sum, account) => sum + account.balance, 0),
+    [state.reports.accountBalances]
   );
+  const fundTotal = useMemo(
+    () => state.reports.fundBalances.reduce((sum, fund) => sum + fund.balance, 0),
+    [state.reports.fundBalances]
+  );
+  const openTasks = state.tasks.filter((task) => task.status === "open");
+  const activeWish =
+    state.wishes.find((wish) => wish.status === "active" && wish.agreedPoints) ??
+    state.wishes[0];
+  const wishTarget = activeWish?.agreedPoints ?? 0;
+  const wishProgress = wishTarget
+    ? Math.min(100, Math.round((state.pointBalance.balance / wishTarget) * 100))
+    : 0;
+
+  return (
+    <>
+      <div className="summary-grid">
+        <article>
+          <p>個人帳戶總餘額</p>
+          <strong>{formatCurrency(accountTotal)}</strong>
+        </article>
+        <article>
+          <p>共用基金餘額</p>
+          <strong>{formatCurrency(fundTotal)}</strong>
+        </article>
+        <article>
+          <p>待完成任務</p>
+          <strong>{openTasks.length}</strong>
+        </article>
+        <article>
+          <p>我的點數</p>
+          <strong>{state.pointBalance.balance}</strong>
+        </article>
+      </div>
+
+      <div className="content-grid">
+        <section className="panel">
+          <h2>任務預覽</h2>
+          <ul className="task-list">
+            {state.tasks.slice(0, 5).map((task) => (
+              <li key={task.id}>
+                <span>{task.title}</span>
+                <small>
+                  {task.maxPoints} 點 / {task.approvalMode === "auto" ? "自動發分" : "需要審核"}
+                  {task.dueAt ? ` / ${new Date(task.dueAt).toLocaleString()}` : ""}
+                </small>
+              </li>
+            ))}
+            {state.tasks.length === 0 ? <li className="muted">目前沒有任務。</li> : null}
+          </ul>
+        </section>
+
+        <section className="panel">
+          <h2>願望進度</h2>
+          {activeWish ? (
+            <div className="wish-card">
+              <span>{activeWish.title}</span>
+              <strong>
+                {state.pointBalance.balance} / {wishTarget || "未定價"}
+              </strong>
+              <div className="progress" aria-label={`願望進度 ${wishProgress}%`}>
+                <span style={{ width: `${wishProgress}%` }} />
+              </div>
+            </div>
+          ) : (
+            <p className="muted">目前沒有願望。</p>
+          )}
+        </section>
+      </div>
+
+      <section className="panel">
+        <h2>API 串接狀態</h2>
+        <div className="module-list">
+          <div className="module-row">
+            <span>家庭</span>
+            <small>{state.family.name}</small>
+          </div>
+          <div className="module-row">
+            <span>資料來源</span>
+            <small>家庭、任務、點數、願望、報表皆由後端 API 載入</small>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency: "TWD",
+    maximumFractionDigits: 0
+  }).format(value);
 }

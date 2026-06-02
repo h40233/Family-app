@@ -1,25 +1,22 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/app-shell/page-header";
+import { useActiveFamily } from "@/features/families/use-active-family";
+import { apiRequest, errorMessage } from "@/lib/api-client";
 
-const FAMILY_ID = "00000000-0000-4000-8000-000000001001";
-const DEFAULT_USER_ID = "00000000-0000-4000-8000-000000000001";
-
-type ApiEnvelope<T> = { data?: T; error?: { message: string } };
 type WishStatus = "submitted" | "rejected" | "pricing" | "price_pending_requester" | "active" | "price_change_pending" | "redeemed_pending_fulfillment" | "completed" | "cancelled";
 type Wish = { id: string; requesterId: string; fulfillerId: string; title: string; description?: string; status: WishStatus; agreedPoints?: number };
 type WishPriceProposal = { id: string; wishId: string; points: number; status: string };
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) }
-  });
-  const payload = (await response.json()) as ApiEnvelope<T>;
-  if (!response.ok || payload.error) throw new Error(payload.error?.message ?? `請求失敗：${response.status}`);
-  return payload.data as T;
-}
+type FamilyMember = {
+  id: string;
+  familyId: string;
+  userId: string;
+  displayName: string;
+  role: string;
+  isChildAccount: boolean;
+};
+type MembersResponse = { members: FamilyMember[] };
 
 function wishStatusLabel(status: WishStatus) {
   const labels: Record<WishStatus, string> = {
@@ -37,30 +34,21 @@ function wishStatusLabel(status: WishStatus) {
 }
 
 export function WishesMvpView() {
+  const activeFamily = useActiveFamily();
   const [wishes, setWishes] = useState<Wish[]>([]);
+  const [members, setMembers] = useState<FamilyMember[]>([]);
   const [proposalIds, setProposalIds] = useState<Record<string, string>>({});
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [fulfillerId, setFulfillerId] = useState(DEFAULT_USER_ID);
+  const [fulfillerId, setFulfillerId] = useState("");
   const [proposalPoints, setProposalPoints] = useState<Record<string, number>>({});
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
-  async function loadWishes() {
-    setLoading(true);
-    try {
-      setWishes(await api<Wish[]>(`/api/v1/families/${FAMILY_ID}/wishes`));
-      setMessage("");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "願望載入失敗。");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadWishes();
-  }, []);
+  const memberNameById = useMemo(
+    () => new Map(members.map((member) => [member.userId, member.displayName])),
+    [members]
+  );
 
   const stats = useMemo(() => ({
     active: wishes.filter((wish) => wish.status === "active").length,
@@ -68,71 +56,132 @@ export function WishesMvpView() {
     completed: wishes.filter((wish) => wish.status === "completed").length
   }), [wishes]);
 
+  const loadWishes = useCallback(async (familyId: string, currentUserId: string) => {
+    setLoading(true);
+    try {
+      const [loadedWishes, membersResponse] = await Promise.all([
+        apiRequest<Wish[]>(`/api/v1/families/${familyId}/wishes`),
+        apiRequest<MembersResponse>(`/api/v1/families/${familyId}/members`)
+      ]);
+      setWishes(loadedWishes);
+      setMembers(membersResponse.members);
+      setFulfillerId((current) => current || currentUserId);
+      setMessage("");
+    } catch (error) {
+      setMessage(errorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeFamily.status !== "ready") {
+      setLoading(activeFamily.status === "loading");
+      return;
+    }
+
+    void loadWishes(activeFamily.family.id, activeFamily.user.id);
+  }, [activeFamily, loadWishes]);
+
   function replaceWish(nextWish: Wish) {
     setWishes((current) => current.map((wish) => (wish.id === nextWish.id ? nextWish : wish)));
   }
 
   async function createWish(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (activeFamily.status !== "ready") return;
     if (!title.trim()) return;
+    const nextFulfillerId = fulfillerId || activeFamily.user.id;
+
     try {
-      const wish = await api<Wish>(`/api/v1/families/${FAMILY_ID}/wishes`, {
+      const wish = await apiRequest<Wish>(`/api/v1/families/${activeFamily.family.id}/wishes`, {
         method: "POST",
-        body: JSON.stringify({ title: title.trim(), description: description.trim() || undefined, fulfillerId })
+        body: JSON.stringify({ title: title.trim(), description: description.trim() || undefined, fulfillerId: nextFulfillerId })
       });
       setWishes((current) => [wish, ...current]);
       setTitle("");
       setDescription("");
       setMessage("願望已建立。");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "願望建立失敗。");
+      setMessage(errorMessage(error));
     }
   }
 
   async function mutateWish(wish: Wish, action: "accept" | "reject" | "redeem" | "complete") {
+    if (activeFamily.status !== "ready") return;
+
     try {
-      const result = await api<Wish | { wishId: string }>(`/api/v1/families/${FAMILY_ID}/wishes/${wish.id}/${action}`, { method: "POST" });
+      const result = await apiRequest<Wish | { wishId: string }>(`/api/v1/families/${activeFamily.family.id}/wishes/${wish.id}/${action}`, { method: "POST" });
       if ("status" in result) replaceWish(result);
-      else await loadWishes();
+      else await loadWishes(activeFamily.family.id, activeFamily.user.id);
       setMessage("願望已更新。");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "願望更新失敗。");
+      setMessage(errorMessage(error));
     }
   }
 
   async function proposePrice(wish: Wish) {
+    if (activeFamily.status !== "ready") return;
     const points = proposalPoints[wish.id] ?? wish.agreedPoints ?? 100;
+
     try {
-      const proposal = await api<WishPriceProposal>(`/api/v1/families/${FAMILY_ID}/wishes/${wish.id}/price-proposals`, {
+      const proposal = await apiRequest<WishPriceProposal>(`/api/v1/families/${activeFamily.family.id}/wishes/${wish.id}/price-proposals`, {
         method: "POST",
-        body: JSON.stringify({ points, note: "由 MVP 介面提出" })
+        body: JSON.stringify({ points, note: "由願望頁提出" })
       });
       setProposalIds((current) => ({ ...current, [wish.id]: proposal.id }));
-      await loadWishes();
+      await loadWishes(activeFamily.family.id, activeFamily.user.id);
       setMessage(`已提出 ${proposal.points} 點的定價。`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "定價失敗。");
+      setMessage(errorMessage(error));
     }
   }
 
   async function resolvePrice(wish: Wish, approve: boolean) {
+    if (activeFamily.status !== "ready") return;
     const proposalId = proposalIds[wish.id];
     if (!proposalId) {
       setMessage("請先提出價格，再同意或駁回。");
       return;
     }
+
     try {
-      const nextWish = await api<Wish>(`/api/v1/families/${FAMILY_ID}/wishes/${wish.id}/price-proposals/${proposalId}/${approve ? "approve" : "reject"}`, { method: "POST" });
+      const nextWish = await apiRequest<Wish>(`/api/v1/families/${activeFamily.family.id}/wishes/${wish.id}/price-proposals/${proposalId}/${approve ? "approve" : "reject"}`, { method: "POST" });
       replaceWish(nextWish);
       setMessage(approve ? "價格已同意。" : "價格已駁回。");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "價格處理失敗。");
+      setMessage(errorMessage(error));
     }
   }
 
+  if (activeFamily.status !== "ready") {
+    const displayMessage = "message" in activeFamily ? activeFamily.message : "正在載入登入與家庭資料。";
+
+    return (
+      <>
+        <PageHeader eyebrow="願望清單" title="願望與獎勵" description="提出願望、協議兌換點數、兌換獎勵並追蹤實現狀態。" />
+        <section className="panel">
+          <h2>願望資料</h2>
+          <p className="page-description">{displayMessage}</p>
+        </section>
+      </>
+    );
+  }
+
+  const memberOptions = members.length > 0
+    ? members
+    : [{
+        id: activeFamily.user.id,
+        familyId: activeFamily.family.id,
+        userId: activeFamily.user.id,
+        displayName: activeFamily.user.displayName,
+        role: "member",
+        isChildAccount: activeFamily.user.isChildAccount
+      }];
+
   return (
     <>
-      <PageHeader eyebrow="願望清單" title="願望與獎勵" description="提出願望、協議兌換點數、兌換獎勵並追蹤實現狀態。" />
+      <PageHeader eyebrow="願望清單" title="願望與獎勵" description={`${activeFamily.family.name} 的願望、定價、兌換與實現狀態。`} />
       <div className="summary-grid">
         <article><p>願望總數</p><strong>{wishes.length}</strong></article>
         <article><p>可兌換</p><strong>{stats.active}</strong></article>
@@ -150,6 +199,9 @@ export function WishesMvpView() {
                 <div>
                   <span>{wish.title}</span>
                   <small>{wishStatusLabel(wish.status)}{wish.agreedPoints ? ` / ${wish.agreedPoints} 點` : ""}</small>
+                  <small>
+                    提出者 {memberNameById.get(wish.requesterId) ?? wish.requesterId} / 實現者 {memberNameById.get(wish.fulfillerId) ?? wish.fulfillerId}
+                  </small>
                   {wish.description ? <small>{wish.description}</small> : null}
                 </div>
                 <div className="topbar-action" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -176,6 +228,7 @@ export function WishesMvpView() {
                 </div>
               </div>
             ))}
+            {!loading && wishes.length === 0 ? <p className="muted">目前沒有願望。</p> : null}
           </div>
         </section>
         <section className="panel">
@@ -183,8 +236,13 @@ export function WishesMvpView() {
           <form className="module-list" onSubmit={(event) => void createWish(event)}>
             <label><small>願望名稱</small><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
             <label><small>說明</small><input value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-            <label><small>實現者 ID</small><input value={fulfillerId} onChange={(event) => setFulfillerId(event.target.value)} /></label>
-            <button type="submit">建立願望</button>
+            <label>
+              <small>實現者</small>
+              <select value={fulfillerId || activeFamily.user.id} onChange={(event) => setFulfillerId(event.target.value)}>
+                {memberOptions.map((member) => <option key={member.userId} value={member.userId}>{member.displayName}</option>)}
+              </select>
+            </label>
+            <button type="submit" disabled={loading}>建立願望</button>
           </form>
         </section>
       </div>
