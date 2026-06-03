@@ -12,8 +12,27 @@ import {
 } from "@/features/money/offline-personal-queue";
 import { useOnlineStatus } from "@/features/money/use-online-status";
 
+type TransactionType = "income" | "expense";
 type PersonalAccount = { id: string; name: string; type: "cash" | "bank" | "e_wallet" | "other"; balance: number };
-type PersonalTransaction = { id: string; accountId: string; type: "income" | "expense"; category?: string; amount: number; note?: string; occurredAt: string };
+type PersonalCategory = {
+  id: string;
+  parentId?: string;
+  parentName?: string;
+  type: TransactionType;
+  name: string;
+  isSystem: boolean;
+  children?: PersonalCategory[];
+};
+type PersonalTransaction = {
+  id: string;
+  accountId: string;
+  type: TransactionType;
+  categoryId?: string;
+  category?: string;
+  amount: number;
+  note?: string;
+  occurredAt: string;
+};
 
 const accountTypeLabels: Record<PersonalAccount["type"], string> = {
   cash: "現金",
@@ -22,12 +41,34 @@ const accountTypeLabels: Record<PersonalAccount["type"], string> = {
   other: "其他"
 };
 
+const transactionTypeLabels: Record<TransactionType, string> = {
+  expense: "支出",
+  income: "收入"
+};
+
+function flattenCategories(categories: PersonalCategory[]): PersonalCategory[] {
+  return categories.flatMap((category) => [category, ...(category.children ?? [])]);
+}
+
+function categoryDisplayName(category?: PersonalCategory) {
+  if (!category) return "未分類";
+  return category.parentName ? `${category.parentName} > ${category.name}` : category.name;
+}
+
 export function PersonalAccountingView() {
   const online = useOnlineStatus();
   const [accounts, setAccounts] = useState<PersonalAccount[]>([]);
+  const [categories, setCategories] = useState<PersonalCategory[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [transactions, setTransactions] = useState<PersonalTransaction[]>([]);
   const [queuedTransactions, setQueuedTransactions] = useState<OfflinePersonalTransaction[]>([]);
+  const [transactionType, setTransactionType] = useState<TransactionType>("expense");
+  const [selectedParentCategoryId, setSelectedParentCategoryId] = useState("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState("");
+  const [newCategoryType, setNewCategoryType] = useState<TransactionType>("expense");
+  const [newCategoryLevel, setNewCategoryLevel] = useState<"parent" | "child">("child");
+  const [newCategoryParentId, setNewCategoryParentId] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -36,6 +77,25 @@ export function PersonalAccountingView() {
 
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId);
   const totalBalance = useMemo(() => accounts.reduce((sum, account) => sum + account.balance, 0), [accounts]);
+  const categoryParents = useMemo(
+    () => categories.filter((category) => category.type === transactionType),
+    [categories, transactionType]
+  );
+  const newCategoryParents = useMemo(
+    () => categories.filter((category) => category.type === newCategoryType),
+    [categories, newCategoryType]
+  );
+  const selectedParentCategory = categoryParents.find((category) => category.id === selectedParentCategoryId);
+  const childCategoryOptions = selectedParentCategory?.children ?? [];
+  const flatCategories = useMemo(() => flattenCategories(categories), [categories]);
+  const categoryById = useMemo(
+    () => new Map(flatCategories.map((category) => [category.id, category])),
+    [flatCategories]
+  );
+
+  async function loadCategories() {
+    setCategories(await apiRequest<PersonalCategory[]>("/api/v1/personal/categories"));
+  }
 
   async function loadAccounts(nextSelectedId?: string) {
     setError("");
@@ -52,14 +112,38 @@ export function PersonalAccountingView() {
   }
 
   useEffect(() => {
+    const firstParentId = categoryParents[0]?.id ?? "";
+    setSelectedParentCategoryId((current) =>
+      categoryParents.some((category) => category.id === current) ? current : firstParentId
+    );
+  }, [categoryParents]);
+
+  useEffect(() => {
+    const validCategoryIds = new Set([selectedParentCategory?.id, ...childCategoryOptions.map((category) => category.id)].filter(Boolean));
+    const fallbackCategoryId = childCategoryOptions[0]?.id ?? selectedParentCategory?.id ?? "";
+    setSelectedCategoryId((current) => (validCategoryIds.has(current) ? current : fallbackCategoryId));
+  }, [childCategoryOptions, selectedParentCategory]);
+
+  useEffect(() => {
+    const firstParentId = newCategoryParents[0]?.id ?? "";
+    setNewCategoryParentId((current) =>
+      newCategoryParents.some((category) => category.id === current) ? current : firstParentId
+    );
+  }, [newCategoryParents]);
+
+  useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       setQueuedTransactions(readOfflinePersonalQueue());
       try {
-        const loadedAccounts = await apiRequest<PersonalAccount[]>("/api/v1/personal/accounts");
+        const [loadedAccounts, loadedCategories] = await Promise.all([
+          apiRequest<PersonalAccount[]>("/api/v1/personal/accounts"),
+          apiRequest<PersonalCategory[]>("/api/v1/personal/categories")
+        ]);
         if (cancelled) return;
         setAccounts(loadedAccounts);
+        setCategories(loadedCategories);
         const firstAccountId = loadedAccounts[0]?.id ?? "";
         setSelectedAccountId(firstAccountId);
         if (firstAccountId) {
@@ -124,6 +208,81 @@ export function PersonalAccountingView() {
     }
   }
 
+  async function handleDeleteAccount(account: PersonalAccount) {
+    if (!online) {
+      setNotice("刪除帳戶需要網路連線。");
+      return;
+    }
+    if (!window.confirm(`確定要刪除「${account.name}」嗎？交易紀錄會保留，但帳戶會從列表隱藏。`)) return;
+    setSaving(true);
+    setError("");
+    try {
+      await apiRequest(`/api/v1/personal/accounts/${account.id}`, { method: "DELETE" });
+      const nextAccountId = accounts.find((item) => item.id !== account.id)?.id ?? "";
+      await loadAccounts(nextAccountId);
+      setNotice("帳戶已刪除。");
+    } catch (deleteError) {
+      setError(errorMessage(deleteError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCreateCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!online) {
+      setNotice("分類管理需要網路連線。");
+      return;
+    }
+    const name = newCategoryName.trim();
+    if (!name) {
+      setError("請輸入分類名稱。");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await apiRequest<PersonalCategory>("/api/v1/personal/categories", {
+        method: "POST",
+        body: JSON.stringify({
+          type: newCategoryType,
+          parentId: newCategoryLevel === "child" ? newCategoryParentId : undefined,
+          name
+        })
+      });
+      setNewCategoryName("");
+      await loadCategories();
+      setNotice("分類已新增。");
+    } catch (saveError) {
+      setError(errorMessage(saveError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteCategory(category: PersonalCategory) {
+    if (!online) {
+      setNotice("分類管理需要網路連線。");
+      return;
+    }
+    if (category.isSystem) {
+      setNotice("系統預設分類不能刪除。");
+      return;
+    }
+    if (!window.confirm(`確定要刪除「${categoryDisplayName(category)}」嗎？既有交易仍會保留原分類名稱。`)) return;
+    setSaving(true);
+    setError("");
+    try {
+      await apiRequest(`/api/v1/personal/categories/${category.id}`, { method: "DELETE" });
+      await loadCategories();
+      setNotice("分類已刪除。");
+    } catch (deleteError) {
+      setError(errorMessage(deleteError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleCreateTransaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedAccount) {
@@ -131,9 +290,7 @@ export function PersonalAccountingView() {
       return;
     }
     const form = new FormData(event.currentTarget);
-    const type: PersonalTransaction["type"] = form.get("type") === "income" ? "income" : "expense";
     const amount = Number(form.get("amount") ?? 0);
-    const category = String(form.get("category") ?? "").trim() || undefined;
     const note = String(form.get("note") ?? "").trim() || undefined;
     if (!amount || amount <= 0) {
       setError("請輸入大於 0 的金額。");
@@ -141,7 +298,17 @@ export function PersonalAccountingView() {
     }
     setSaving(true);
     setError("");
-    const payload = { accountId: selectedAccount.id, clientMutationId: createClientMutationId(), type, category, amount, note, occurredAt: new Date().toISOString() };
+    const selectedCategory = categoryById.get(selectedCategoryId);
+    const payload = {
+      accountId: selectedAccount.id,
+      clientMutationId: createClientMutationId(),
+      type: transactionType,
+      categoryId: selectedCategory?.id,
+      category: categoryDisplayName(selectedCategory),
+      amount,
+      note,
+      occurredAt: new Date().toISOString()
+    };
     try {
       if (!online) {
         setQueuedTransactions(enqueueOfflinePersonalTransaction(payload));
@@ -190,7 +357,7 @@ export function PersonalAccountingView() {
       <PageHeader
         eyebrow="個人記帳"
         title="個人帳本"
-        description="依帳戶查看現金、銀行與電子錢包餘額，並記錄收入與支出。"
+        description="依帳戶查看現金、銀行與電子錢包餘額，並用大類與小類記錄收入支出。"
         action={<button type="button" onClick={() => void handleSyncQueue()} disabled={syncing}>{syncing ? "同步中" : `同步離線交易 ${queuedTransactions.length}`}</button>}
       />
       {(notice || !online) && <section className="panel" style={{ marginBottom: "1rem" }}><strong>{online ? "提示" : "離線模式"}</strong><p className="muted">{notice || "目前離線，僅可暫存個人交易。"}</p></section>}
@@ -206,9 +373,16 @@ export function PersonalAccountingView() {
           <h2>帳戶列表</h2>
           <div className="module-list">
             {accounts.map((account) => (
-              <button key={account.id} type="button" onClick={() => void handleAccountChange(account.id)} style={{ background: account.id === selectedAccountId ? "var(--primary)" : "var(--surface)", border: "1px solid var(--border)", color: account.id === selectedAccountId ? "white" : "var(--text)", textAlign: "left" }}>
-                {account.name} / {accountTypeLabels[account.type]} / {formatCurrency(account.balance)}
-              </button>
+              <div key={account.id} className="module-row" style={{ background: account.id === selectedAccountId ? "rgba(47, 111, 96, 0.08)" : "var(--surface)" }}>
+                <div>
+                  <span>{account.name}</span>
+                  <small>{accountTypeLabels[account.type]} / {formatCurrency(account.balance)}</small>
+                </div>
+                <div className="topbar-action">
+                  <button type="button" onClick={() => void handleAccountChange(account.id)} disabled={!online}>查看</button>
+                  <button type="button" className="danger-button" onClick={() => void handleDeleteAccount(account)} disabled={!online || saving}>刪除</button>
+                </div>
+              </div>
             ))}
             {!loading && accounts.length === 0 && <p className="muted">尚未建立帳戶。</p>}
           </div>
@@ -230,9 +404,21 @@ export function PersonalAccountingView() {
           <h2>{selectedAccount ? `${selectedAccount.name} 交易紀錄` : "交易紀錄"}</h2>
           <form onSubmit={(event) => void handleCreateTransaction(event)}>
             <div style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }}>
-              <select name="type" defaultValue="expense"><option value="expense">支出</option><option value="income">收入</option></select>
+              <label><small>收支類型</small><select value={transactionType} onChange={(event) => setTransactionType(event.target.value as TransactionType)}><option value="expense">支出</option><option value="income">收入</option></select></label>
+              <label>
+                <small>大類</small>
+                <select value={selectedParentCategoryId} onChange={(event) => setSelectedParentCategoryId(event.target.value)}>
+                  {categoryParents.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                </select>
+              </label>
+              <label>
+                <small>小類</small>
+                <select value={selectedCategoryId} onChange={(event) => setSelectedCategoryId(event.target.value)}>
+                  {childCategoryOptions.length === 0 && selectedParentCategory ? <option value={selectedParentCategory.id}>{selectedParentCategory.name}</option> : null}
+                  {childCategoryOptions.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                </select>
+              </label>
               <input name="amount" inputMode="decimal" placeholder="金額" />
-              <input name="category" placeholder="分類，例如餐飲、薪資" />
               <input name="note" placeholder="備註" />
               <button type="submit" disabled={saving || !selectedAccount}>新增交易</button>
             </div>
@@ -248,6 +434,45 @@ export function PersonalAccountingView() {
           </div>
         </section>
       </div>
+
+      <section className="panel" style={{ marginTop: "1rem" }}>
+        <h2>分類管理</h2>
+        <form onSubmit={(event) => void handleCreateCategory(event)} style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }}>
+          <select value={newCategoryType} onChange={(event) => setNewCategoryType(event.target.value as TransactionType)}>
+            <option value="expense">支出</option>
+            <option value="income">收入</option>
+          </select>
+          <select value={newCategoryLevel} onChange={(event) => setNewCategoryLevel(event.target.value as "parent" | "child")}>
+            <option value="child">新增小類</option>
+            <option value="parent">新增大類</option>
+          </select>
+          {newCategoryLevel === "child" ? (
+            <select value={newCategoryParentId} onChange={(event) => setNewCategoryParentId(event.target.value)}>
+              {newCategoryParents.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+          ) : null}
+          <input value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} placeholder={newCategoryLevel === "child" ? "小類名稱，例如早餐" : "大類名稱，例如食"} />
+          <button type="submit" disabled={saving || !online || (newCategoryLevel === "child" && !newCategoryParentId)}>新增分類</button>
+        </form>
+        <div className="module-list">
+          {categories.map((parent) => (
+            <div key={parent.id} className="module-row">
+              <div>
+                <span>{transactionTypeLabels[parent.type]} / {parent.name}</span>
+                <small>{parent.isSystem ? "系統預設" : "自訂"}{parent.children?.length ? ` / 小類：${parent.children.map((child) => child.name).join("、")}` : ""}</small>
+              </div>
+              <div className="topbar-action">
+                {!parent.isSystem ? <button type="button" className="danger-button" onClick={() => void handleDeleteCategory(parent)} disabled={saving || !online}>刪除</button> : null}
+                {(parent.children ?? []).filter((child) => !child.isSystem).map((child) => (
+                  <button key={child.id} type="button" className="danger-button" onClick={() => void handleDeleteCategory(child)} disabled={saving || !online}>
+                    刪除 {child.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </>
   );
 }

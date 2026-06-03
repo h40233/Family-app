@@ -2,6 +2,7 @@ export type OfflinePersonalTransaction = {
   accountId: string;
   clientMutationId: string;
   type: "income" | "expense";
+  categoryId?: string;
   category?: string;
   amount: number;
   note?: string;

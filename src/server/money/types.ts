@@ -8,6 +8,24 @@ export type PersonalAccount = {
   balance: number;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
+};
+
+export type PersonalCategory = {
+  id: string;
+  familyId?: string;
+  userId?: string;
+  parentId?: string;
+  parentName?: string;
+  scope: string;
+  type: MoneyTransactionType;
+  name: string;
+  icon?: string;
+  isSystem: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
+  children?: PersonalCategory[];
 };
 
 export type PersonalTransaction = {
@@ -16,6 +34,7 @@ export type PersonalTransaction = {
   userId: string;
   clientMutationId?: string;
   type: MoneyTransactionType;
+  categoryId?: string;
   category?: string;
   amount: number;
   note?: string;
@@ -35,8 +54,21 @@ export type CreatePersonalTransactionInput = {
   accountId: string;
   clientMutationId?: string;
   type: MoneyTransactionType;
+  categoryId?: string;
   category?: string;
   amount: number;
   note?: string;
   occurredAt?: string;
+};
+
+export type CreatePersonalCategoryInput = {
+  userId: string;
+  type: MoneyTransactionType;
+  parentId?: string;
+  name: string;
+};
+
+export type DeletePersonalCategoryInput = {
+  userId: string;
+  categoryId: string;
 };

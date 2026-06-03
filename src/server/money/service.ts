@@ -5,10 +5,28 @@ import { createId, getMemoryStore, nowIso } from "@/server/store";
 import { MoneyTransactionType as PrismaMoneyTransactionType } from "@prisma/client";
 import type {
   CreatePersonalAccountInput,
+  CreatePersonalCategoryInput,
   CreatePersonalTransactionInput,
+  DeletePersonalCategoryInput,
   PersonalAccount,
+  PersonalCategory,
   PersonalTransaction
 } from "./types";
+
+type CategoryRecord = {
+  id: string;
+  familyId?: string | null;
+  userId?: string | null;
+  parentId?: string | null;
+  scope: string;
+  type: string;
+  name: string;
+  icon?: string | null;
+  isSystem: boolean;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  parent?: { id: string; name: string } | null;
+};
 
 export async function listPersonalAccounts(userId: string): Promise<PersonalAccount[]> {
   if (usesDatabaseRuntime("money")) {
@@ -17,42 +35,28 @@ export async function listPersonalAccounts(userId: string): Promise<PersonalAcco
       orderBy: { createdAt: "asc" }
     });
 
-    return accounts.map((account) => ({
-      id: account.id,
-      userId: account.userId,
-      name: account.name,
-      type: parseAccountType(account.type),
-      balance: Number(account.balance),
-      createdAt: account.createdAt.toISOString(),
-      updatedAt: account.updatedAt.toISOString()
-    }));
+    return accounts.map(toPersonalAccount);
   }
 
-  return getMemoryStore().personalAccounts.filter((account) => account.userId === userId);
+  return getMemoryStore().personalAccounts.filter(
+    (account) => account.userId === userId && !account.deletedAt
+  );
 }
 
 export async function createPersonalAccount(
   input: CreatePersonalAccountInput
 ): Promise<PersonalAccount> {
   if (usesDatabaseRuntime("money")) {
-    const account = await prisma.personalAccount.create({
-      data: {
-        userId: input.userId,
-        name: input.name,
-        type: input.type,
-        balance: 0
-      }
-    });
-
-    return {
-      id: account.id,
-      userId: account.userId,
-      name: account.name,
-      type: parseAccountType(account.type),
-      balance: Number(account.balance),
-      createdAt: account.createdAt.toISOString(),
-      updatedAt: account.updatedAt.toISOString()
-    };
+    return toPersonalAccount(
+      await prisma.personalAccount.create({
+        data: {
+          userId: input.userId,
+          name: input.name,
+          type: input.type,
+          balance: 0
+        }
+      })
+    );
   }
 
   const timestamp = nowIso();
@@ -71,23 +75,212 @@ export async function createPersonalAccount(
   return account;
 }
 
+export async function deletePersonalAccount(input: {
+  userId: string;
+  accountId: string;
+}): Promise<{ accountId: string; deletedAt: string }> {
+  if (usesDatabaseRuntime("money")) {
+    const account = await prisma.personalAccount.findFirst({
+      where: { id: input.accountId, userId: input.userId, deletedAt: null }
+    });
+
+    if (!account) throw new Error("Personal account not found.");
+
+    const deletedAt = new Date();
+    await prisma.personalAccount.update({
+      where: { id: account.id },
+      data: { deletedAt }
+    });
+
+    return { accountId: account.id, deletedAt: deletedAt.toISOString() };
+  }
+
+  const account = getMemoryStore().personalAccounts.find(
+    (item) => item.id === input.accountId && item.userId === input.userId && !item.deletedAt
+  );
+
+  if (!account) throw new Error("Personal account not found.");
+
+  account.deletedAt = nowIso();
+  account.updatedAt = account.deletedAt;
+
+  return { accountId: account.id, deletedAt: account.deletedAt };
+}
+
+export async function listPersonalCategories(userId: string): Promise<PersonalCategory[]> {
+  if (usesDatabaseRuntime("money")) {
+    const categories = await prisma.category.findMany({
+      where: {
+        scope: "personal",
+        deletedAt: null,
+        OR: [
+          { userId },
+          { userId: null, familyId: null, isSystem: true }
+        ]
+      },
+      orderBy: [{ type: "asc" }, { createdAt: "asc" }, { name: "asc" }]
+    });
+
+    return buildCategoryTree(categories.map((category) => toPersonalCategory(category)));
+  }
+
+  const categories = getMemoryStore().categories.filter(
+    (category) =>
+      category.scope === "personal" &&
+      !category.deletedAt &&
+      (category.userId === userId || (category.isSystem && !category.userId && !category.familyId))
+  );
+
+  return buildCategoryTree(categories);
+}
+
+export async function createPersonalCategory(
+  input: CreatePersonalCategoryInput
+): Promise<PersonalCategory> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Category name is required.");
+
+  if (usesDatabaseRuntime("money")) {
+    const parent = input.parentId
+      ? await getAccessibleDatabaseCategory({
+          userId: input.userId,
+          categoryId: input.parentId,
+          type: input.type
+        })
+      : null;
+
+    if (parent?.parentId) throw new Error("Only two category levels are supported.");
+
+    const category = await prisma.category.create({
+      data: {
+        userId: input.userId,
+        parentId: parent?.id,
+        scope: "personal",
+        type: input.type,
+        name
+      },
+      include: { parent: true }
+    });
+
+    return toPersonalCategory(category);
+  }
+
+  const store = getMemoryStore();
+  const parent = input.parentId
+    ? getAccessibleMemoryCategory({
+        userId: input.userId,
+        categoryId: input.parentId,
+        type: input.type
+      })
+    : null;
+
+  if (parent?.parentId) throw new Error("Only two category levels are supported.");
+
+  const timestamp = nowIso();
+  const category: PersonalCategory = {
+    id: createId("category"),
+    userId: input.userId,
+    parentId: parent?.id,
+    parentName: parent?.name,
+    scope: "personal",
+    type: input.type,
+    name,
+    isSystem: false,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+
+  store.categories.push(category);
+  return category;
+}
+
+export async function deletePersonalCategory(input: DeletePersonalCategoryInput): Promise<{
+  categoryId: string;
+  deletedChildren: number;
+}> {
+  if (usesDatabaseRuntime("money")) {
+    const category = await prisma.category.findFirst({
+      where: {
+        id: input.categoryId,
+        userId: input.userId,
+        isSystem: false,
+        deletedAt: null
+      }
+    });
+
+    if (!category) throw new Error("Category not found or cannot be deleted.");
+
+    const deletedAt = new Date();
+    const children = await prisma.category.updateMany({
+      where: { parentId: category.id, userId: input.userId, isSystem: false, deletedAt: null },
+      data: { deletedAt }
+    });
+    await prisma.category.update({
+      where: { id: category.id },
+      data: { deletedAt }
+    });
+
+    return { categoryId: category.id, deletedChildren: children.count };
+  }
+
+  const store = getMemoryStore();
+  const category = store.categories.find(
+    (item) =>
+      item.id === input.categoryId &&
+      item.userId === input.userId &&
+      !item.isSystem &&
+      !item.deletedAt
+  );
+
+  if (!category) throw new Error("Category not found or cannot be deleted.");
+
+  const deletedAt = nowIso();
+  category.deletedAt = deletedAt;
+  category.updatedAt = deletedAt;
+  const children = store.categories.filter(
+    (item) =>
+      item.parentId === category.id &&
+      item.userId === input.userId &&
+      !item.isSystem &&
+      !item.deletedAt
+  );
+  for (const child of children) {
+    child.deletedAt = deletedAt;
+    child.updatedAt = deletedAt;
+  }
+
+  return { categoryId: category.id, deletedChildren: children.length };
+}
+
 export async function listPersonalTransactions(input: {
   userId: string;
   accountId: string;
 }): Promise<PersonalTransaction[]> {
   if (usesDatabaseRuntime("money")) {
+    const account = await prisma.personalAccount.findFirst({
+      where: { id: input.accountId, userId: input.userId, deletedAt: null },
+      select: { id: true }
+    });
+
+    if (!account) return [];
+
     const transactions = await prisma.personalTransaction.findMany({
       where: {
         userId: input.userId,
         accountId: input.accountId,
         deletedAt: null
       },
-      include: { category: true },
+      include: { category: { include: { parent: true } } },
       orderBy: { occurredAt: "desc" }
     });
 
     return transactions.map(toPersonalTransaction);
   }
+
+  const account = getMemoryStore().personalAccounts.find(
+    (item) => item.id === input.accountId && item.userId === input.userId && !item.deletedAt
+  );
+  if (!account) return [];
 
   return getMemoryStore().personalTransactions
     .filter(
@@ -106,7 +299,7 @@ export async function createPersonalTransaction(
 
   const store = getMemoryStore();
   const account = store.personalAccounts.find(
-    (item) => item.id === input.accountId && item.userId === input.userId
+    (item) => item.id === input.accountId && item.userId === input.userId && !item.deletedAt
   );
 
   if (!account) {
@@ -125,6 +318,14 @@ export async function createPersonalTransaction(
     }
   }
 
+  const category = input.categoryId
+    ? getAccessibleMemoryCategory({
+        userId: input.userId,
+        categoryId: input.categoryId,
+        type: input.type
+      })
+    : null;
+  const categoryName = category ? formatCategoryName(category) : input.category;
   const timestamp = nowIso();
   const transaction: PersonalTransaction = {
     id: createId("personal_transaction"),
@@ -132,7 +333,8 @@ export async function createPersonalTransaction(
     userId: input.userId,
     clientMutationId: input.clientMutationId,
     type: input.type,
-    category: input.category,
+    categoryId: category?.id,
+    category: categoryName,
     amount: input.amount,
     note: input.note,
     occurredAt: input.occurredAt ?? timestamp,
@@ -155,7 +357,7 @@ export async function createPersonalTransaction(
           familyId: member.familyId,
           userId: input.userId,
           accountId: input.accountId,
-          category: input.category
+          category: categoryName
         })
       )
     );
@@ -193,7 +395,7 @@ async function createDatabasePersonalTransaction(
           userId: input.userId,
           clientMutationId
         },
-        include: { category: true }
+        include: { category: { include: { parent: true } } }
       })
     : null;
 
@@ -201,14 +403,7 @@ async function createDatabasePersonalTransaction(
     return toPersonalTransaction(existing);
   }
 
-  const categoryId = input.category
-    ? await findOrCreatePersonalCategory({
-        userId: input.userId,
-        type: input.type,
-        name: input.category
-      })
-    : null;
-
+  const resolvedCategory = await resolveDatabasePersonalCategory(input);
   const occurredAt = input.occurredAt ? new Date(input.occurredAt) : new Date();
 
   const transaction = await prisma.$transaction(async (tx) => {
@@ -233,12 +428,12 @@ async function createDatabasePersonalTransaction(
           input.type === "income"
             ? PrismaMoneyTransactionType.INCOME
             : PrismaMoneyTransactionType.EXPENSE,
-        categoryId,
+        categoryId: resolvedCategory?.id,
         amount: input.amount,
         note: input.note ?? "",
         occurredAt
       },
-      include: { category: true }
+      include: { category: { include: { parent: true } } }
     });
 
     await tx.personalAccount.update({
@@ -255,6 +450,7 @@ async function createDatabasePersonalTransaction(
 
   if (transaction.type === PrismaMoneyTransactionType.EXPENSE) {
     const familyIds = await listFamilyIdsForUser(input.userId);
+    const categoryName = transaction.category ? formatCategoryName(transaction.category) : input.category;
 
     await Promise.all(
       familyIds.map((familyId) =>
@@ -262,13 +458,76 @@ async function createDatabasePersonalTransaction(
           familyId,
           userId: input.userId,
           accountId: input.accountId,
-          category: input.category
+          category: categoryName
         })
       )
     );
   }
 
   return toPersonalTransaction(transaction);
+}
+
+async function resolveDatabasePersonalCategory(input: CreatePersonalTransactionInput) {
+  if (input.categoryId) {
+    return getAccessibleDatabaseCategory({
+      userId: input.userId,
+      categoryId: input.categoryId,
+      type: input.type
+    });
+  }
+
+  if (!input.category?.trim()) return null;
+
+  return {
+    id: await findOrCreatePersonalCategory({
+      userId: input.userId,
+      type: input.type,
+      name: input.category.trim()
+    })
+  };
+}
+
+async function getAccessibleDatabaseCategory(input: {
+  userId: string;
+  categoryId: string;
+  type: "income" | "expense";
+}) {
+  const category = await prisma.category.findFirst({
+    where: {
+      id: input.categoryId,
+      scope: "personal",
+      type: input.type,
+      deletedAt: null,
+      OR: [
+        { userId: input.userId },
+        { userId: null, familyId: null, isSystem: true }
+      ]
+    },
+    include: { parent: true }
+  });
+
+  if (!category) throw new Error("Category not found.");
+
+  return category;
+}
+
+function getAccessibleMemoryCategory(input: {
+  userId: string;
+  categoryId: string;
+  type: "income" | "expense";
+}) {
+  const category = getMemoryStore().categories.find(
+    (item) =>
+      item.id === input.categoryId &&
+      item.scope === "personal" &&
+      item.type === input.type &&
+      !item.deletedAt &&
+      (item.userId === input.userId || (item.isSystem && !item.userId && !item.familyId))
+  );
+
+  if (!category) throw new Error("Category not found.");
+
+  return category;
 }
 
 async function listFamilyIdsForUser(userId: string) {
@@ -296,10 +555,14 @@ async function findOrCreatePersonalCategory(input: {
 }) {
   const existing = await prisma.category.findFirst({
     where: {
-      userId: input.userId,
       scope: "personal",
       type: input.type,
-      name: input.name
+      name: input.name,
+      deletedAt: null,
+      OR: [
+        { userId: input.userId },
+        { userId: null, familyId: null, isSystem: true }
+      ]
     }
   });
 
@@ -317,13 +580,35 @@ async function findOrCreatePersonalCategory(input: {
   return category.id;
 }
 
+function toPersonalAccount(account: {
+  id: string;
+  userId: string;
+  name: string;
+  type: string;
+  balance: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
+}): PersonalAccount {
+  return {
+    id: account.id,
+    userId: account.userId,
+    name: account.name,
+    type: parseAccountType(account.type),
+    balance: Number(account.balance),
+    createdAt: account.createdAt.toISOString(),
+    updatedAt: account.updatedAt.toISOString(),
+    deletedAt: account.deletedAt?.toISOString()
+  };
+}
+
 function toPersonalTransaction(transaction: {
   id: string;
   accountId: string;
   userId: string;
   clientMutationId: string | null;
   type: PrismaMoneyTransactionType;
-  category?: { name: string } | null;
+  category?: (CategoryRecord & { id: string }) | null;
   amount: unknown;
   note: string;
   occurredAt: Date;
@@ -336,13 +621,55 @@ function toPersonalTransaction(transaction: {
     userId: transaction.userId,
     clientMutationId: transaction.clientMutationId ?? undefined,
     type: transaction.type === PrismaMoneyTransactionType.INCOME ? "income" : "expense",
-    category: transaction.category?.name,
+    categoryId: transaction.category?.id,
+    category: transaction.category ? formatCategoryName(transaction.category) : undefined,
     amount: Number(transaction.amount),
     note: transaction.note,
     occurredAt: transaction.occurredAt.toISOString(),
     createdAt: transaction.createdAt.toISOString(),
     updatedAt: transaction.updatedAt.toISOString()
   };
+}
+
+function toPersonalCategory(category: CategoryRecord): PersonalCategory {
+  return {
+    id: category.id,
+    familyId: category.familyId ?? undefined,
+    userId: category.userId ?? undefined,
+    parentId: category.parentId ?? undefined,
+    parentName: category.parent?.name,
+    scope: category.scope,
+    type: category.type === "income" ? "income" : "expense",
+    name: category.name,
+    icon: category.icon ?? undefined,
+    isSystem: category.isSystem,
+    createdAt: toIso(category.createdAt),
+    updatedAt: toIso(category.updatedAt)
+  };
+}
+
+function buildCategoryTree(categories: PersonalCategory[]) {
+  const byId = new Map(categories.map((category) => [category.id, { ...category, children: [] as PersonalCategory[] }]));
+
+  for (const category of byId.values()) {
+    if (!category.parentId) continue;
+    const parent = byId.get(category.parentId);
+    if (!parent) continue;
+    category.parentName = parent.name;
+    parent.children = [...(parent.children ?? []), category];
+  }
+
+  return [...byId.values()].filter((category) => !category.parentId || !byId.has(category.parentId));
+}
+
+function formatCategoryName(category: {
+  name: string;
+  parentId?: string | null;
+  parentName?: string;
+  parent?: { name: string } | null;
+}) {
+  const parentName = category.parentName ?? category.parent?.name;
+  return parentName ? `${parentName} > ${category.name}` : category.name;
 }
 
 function parseAccountType(value: string): PersonalAccount["type"] {
@@ -361,4 +688,8 @@ function parseUuid(value: string | undefined) {
   )
     ? value
     : null;
+}
+
+function toIso(value: Date | string) {
+  return typeof value === "string" ? value : value.toISOString();
 }

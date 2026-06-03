@@ -423,20 +423,26 @@ async function getCategoryNamesById(categoryIds: string[]) {
   const categories = await prisma.category.findMany({
     where: {
       id: { in: [...new Set(categoryIds)] }
-    }
+    },
+    include: { parent: true }
   });
 
-  return new Map(categories.map((category) => [category.id, category.name]));
+  return new Map(categories.map((category) => [category.id, formatCategoryName(category)]));
 }
 
 async function getCategoryName(categoryId: string | null) {
   if (!categoryId) return undefined;
 
   const category = await prisma.category.findUnique({
-    where: { id: categoryId }
+    where: { id: categoryId },
+    include: { parent: true }
   });
 
-  return category?.name;
+  return category ? formatCategoryName(category) : undefined;
+}
+
+function formatCategoryName(category: { name: string; parent?: { name: string } | null }) {
+  return category.parent ? `${category.parent.name} > ${category.name}` : category.name;
 }
 
 async function hasBudgetOverageNotification(input: {

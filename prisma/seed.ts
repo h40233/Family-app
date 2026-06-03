@@ -161,20 +161,80 @@ async function main() {
     }
   });
 
-  await prisma.category.upsert({
-    where: { id: ids.foodCategory },
-    update: {
-      name: "餐飲",
-      type: "expense",
-      scope: "personal"
-    },
-    create: {
-      id: ids.foodCategory,
-      userId: ids.ownerUser,
-      scope: "personal",
-      type: "expense",
-      name: "餐飲"
-    }
+  await upsertCategory({
+    id: ids.expenseFoodCategory,
+    scope: "personal",
+    type: "expense",
+    name: "食",
+    isSystem: true
+  });
+  await upsertCategory({
+    id: ids.foodCategory,
+    scope: "personal",
+    type: "expense",
+    name: "早餐",
+    parentId: ids.expenseFoodCategory,
+    isSystem: true
+  });
+  await upsertCategory({
+    id: ids.expenseTransportCategory,
+    scope: "personal",
+    type: "expense",
+    name: "交通",
+    isSystem: true
+  });
+  await upsertCategory({
+    id: ids.expensePublicTransportCategory,
+    scope: "personal",
+    type: "expense",
+    name: "公共運輸",
+    parentId: ids.expenseTransportCategory,
+    isSystem: true
+  });
+  await upsertCategory({
+    id: ids.expenseHousingCategory,
+    scope: "personal",
+    type: "expense",
+    name: "住",
+    isSystem: true
+  });
+  await upsertCategory({
+    id: ids.expenseUtilitiesCategory,
+    scope: "personal",
+    type: "expense",
+    name: "水電瓦斯",
+    parentId: ids.expenseHousingCategory,
+    isSystem: true
+  });
+  await upsertCategory({
+    id: ids.incomeSalaryCategory,
+    scope: "personal",
+    type: "income",
+    name: "薪資",
+    isSystem: true
+  });
+  await upsertCategory({
+    id: ids.incomeMainSalaryCategory,
+    scope: "personal",
+    type: "income",
+    name: "正職薪資",
+    parentId: ids.incomeSalaryCategory,
+    isSystem: true
+  });
+  await upsertCategory({
+    id: ids.incomeInvestmentCategory,
+    scope: "personal",
+    type: "income",
+    name: "投資",
+    isSystem: true
+  });
+  await upsertCategory({
+    id: ids.incomeDividendCategory,
+    scope: "personal",
+    type: "income",
+    name: "股息利息",
+    parentId: ids.incomeInvestmentCategory,
+    isSystem: true
   });
 
   await prisma.category.upsert({
@@ -182,14 +242,16 @@ async function main() {
     update: {
       name: "家庭基金",
       type: "deposit",
-      scope: "shared_fund"
+      scope: "shared_fund",
+      isSystem: true
     },
     create: {
       id: ids.fundCategory,
       familyId: ids.family,
       scope: "shared_fund",
       type: "deposit",
-      name: "家庭基金"
+      name: "家庭基金",
+      isSystem: true
     }
   });
 
@@ -367,3 +429,32 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+
+async function upsertCategory(input: {
+  id: string;
+  scope: string;
+  type: string;
+  name: string;
+  parentId?: string;
+  isSystem?: boolean;
+}) {
+  await prisma.category.upsert({
+    where: { id: input.id },
+    update: {
+      scope: input.scope,
+      type: input.type,
+      name: input.name,
+      parentId: input.parentId ?? null,
+      isSystem: input.isSystem ?? false,
+      deletedAt: null
+    },
+    create: {
+      id: input.id,
+      scope: input.scope,
+      type: input.type,
+      name: input.name,
+      parentId: input.parentId,
+      isSystem: input.isSystem ?? false
+    }
+  });
+}

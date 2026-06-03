@@ -1,7 +1,7 @@
 import type { AuthUser } from "@/server/auth";
 import type { Family, FamilyMember } from "@/server/families";
 import type { FundTransaction, SharedFund } from "@/server/funds";
-import type { PersonalAccount, PersonalTransaction } from "@/server/money";
+import type { PersonalAccount, PersonalCategory, PersonalTransaction } from "@/server/money";
 import type { AppNotification, PushSubscriptionRecord } from "@/server/notifications";
 import type { ResourcePermissionOverride } from "@/server/permissions";
 import type { PointBalance, PointLedgerEntry } from "@/server/points";
@@ -16,6 +16,7 @@ type MemoryStore = {
   familyMembers: FamilyMember[];
   resourcePermissionOverrides: ResourcePermissionOverride[];
   personalAccounts: PersonalAccount[];
+  categories: PersonalCategory[];
   personalTransactions: PersonalTransaction[];
   budgets: Budget[];
   sharedFunds: SharedFund[];
@@ -98,13 +99,116 @@ function createInitialStore(): MemoryStore {
         updatedAt: timestamp
       }
     ],
+    categories: [
+      {
+        id: devFixtureIds.expenseFoodCategory,
+        scope: "personal",
+        type: "expense",
+        name: "食",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      {
+        id: devFixtureIds.foodCategory,
+        parentId: devFixtureIds.expenseFoodCategory,
+        parentName: "食",
+        scope: "personal",
+        type: "expense",
+        name: "早餐",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      {
+        id: devFixtureIds.expenseTransportCategory,
+        scope: "personal",
+        type: "expense",
+        name: "交通",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      {
+        id: devFixtureIds.expensePublicTransportCategory,
+        parentId: devFixtureIds.expenseTransportCategory,
+        parentName: "交通",
+        scope: "personal",
+        type: "expense",
+        name: "公共運輸",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      {
+        id: devFixtureIds.expenseHousingCategory,
+        scope: "personal",
+        type: "expense",
+        name: "住",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      {
+        id: devFixtureIds.expenseUtilitiesCategory,
+        parentId: devFixtureIds.expenseHousingCategory,
+        parentName: "住",
+        scope: "personal",
+        type: "expense",
+        name: "水電瓦斯",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      {
+        id: devFixtureIds.incomeSalaryCategory,
+        scope: "personal",
+        type: "income",
+        name: "薪資",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      {
+        id: devFixtureIds.incomeMainSalaryCategory,
+        parentId: devFixtureIds.incomeSalaryCategory,
+        parentName: "薪資",
+        scope: "personal",
+        type: "income",
+        name: "正職薪資",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      {
+        id: devFixtureIds.incomeInvestmentCategory,
+        scope: "personal",
+        type: "income",
+        name: "投資",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      },
+      {
+        id: devFixtureIds.incomeDividendCategory,
+        parentId: devFixtureIds.incomeInvestmentCategory,
+        parentName: "投資",
+        scope: "personal",
+        type: "income",
+        name: "股息利息",
+        isSystem: true,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      }
+    ],
     personalTransactions: [
       {
         id: devFixtureIds.breakfastTransaction,
         accountId: devFixtureIds.cashAccount,
         userId: defaultUser.id,
         type: "expense",
-        category: "Food",
+        categoryId: devFixtureIds.foodCategory,
+        category: "食 > 早餐",
         amount: 80,
         note: "Breakfast",
         occurredAt: timestamp,
@@ -120,7 +224,7 @@ function createInitialStore(): MemoryStore {
         targetType: "personal_category",
         targetId: undefined,
         name: "Monthly Food Budget",
-        category: "Food",
+        category: "食 > 早餐",
         amount: 3000,
         periodType: "monthly",
         startAt: "2026-05-01T00:00:00.000Z",

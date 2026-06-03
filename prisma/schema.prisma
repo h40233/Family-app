@@ -320,22 +320,30 @@ model FundTransaction {
 }
 
 model Category {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  familyId  String?  @map("family_id") @db.Uuid
-  userId    String?  @map("user_id") @db.Uuid
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId  String?   @map("family_id") @db.Uuid
+  userId    String?   @map("user_id") @db.Uuid
+  parentId  String?   @map("parent_id") @db.Uuid
   scope     String
   type      String
   name      String
   icon      String?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  isSystem  Boolean   @default(false) @map("is_system")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   family               Family?               @relation(fields: [familyId], references: [id])
   user                 User?                 @relation(fields: [userId], references: [id])
+  parent               Category?             @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children             Category[]            @relation("CategoryHierarchy")
   personalTransactions PersonalTransaction[]
   fundTransactions     FundTransaction[]
 
   @@index([familyId])
   @@index([userId])
+  @@index([parentId])
+  @@index([scope, type])
   @@map("categories")
 }
 

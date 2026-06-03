@@ -24,6 +24,7 @@ export async function POST(request: Request, context: RouteContext) {
     accountId,
     clientMutationId: typeof body.clientMutationId === "string" ? body.clientMutationId : undefined,
     type: body.type === "income" ? "income" : "expense",
+    categoryId: typeof body.categoryId === "string" ? body.categoryId : undefined,
     category: typeof body.category === "string" ? body.category : undefined,
     amount: Number(body.amount ?? 0),
     note: typeof body.note === "string" ? body.note : undefined,

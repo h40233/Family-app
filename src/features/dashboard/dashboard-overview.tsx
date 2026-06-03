@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { AdPlacement } from "@/components/billing/ad-placement";
 import { Can } from "@/components/permissions/can";
@@ -12,7 +13,9 @@ export function DashboardOverview() {
         description="集中查看記帳、共用基金、任務、點數、願望與即時後端資料。"
         action={
           <Can permission="personal.transactions.create">
-            <button type="button">新增交易</button>
+            <Link className="button-link" href="/money/personal">
+              新增交易
+            </Link>
           </Can>
         }
       />

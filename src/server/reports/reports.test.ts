@@ -33,7 +33,7 @@ describe("reports service", () => {
 
     expect(summary.monthlyExpenseByCategory).toEqual(
       expect.arrayContaining([
-        { category: "Food", amount: 80 },
+        { category: "食 > 早餐", amount: 80 },
         { category: "Transport", amount: 120 }
       ])
     );
@@ -66,7 +66,7 @@ describe("reports service", () => {
     const csv = await exportReports({ familyId, userId, format: "csv" });
 
     expect(csv).toContain("section,id,name,category,amount,balance");
-    expect(csv).toContain("monthly_expense_by_category,,,Food,80,");
+    expect(csv).toContain("monthly_expense_by_category,,,食 > 早餐,80,");
     expect(csv).toContain("account_balance,00000000-0000-4000-8000-000000002001,Cash,,,1000");
     expect(csv).toContain("fund_balance,00000000-0000-4000-8000-000000003001,Daily Family Fund,,,42000");
   });

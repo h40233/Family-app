@@ -19,7 +19,7 @@ describe("budgets service", () => {
       userId,
       name: "Tiny Food Budget",
       targetType: "personal_category",
-      category: "Food",
+      category: "食 > 早餐",
       amount: 100,
       periodType: "monthly",
       startAt: "2026-05-01T00:00:00.000Z",
@@ -30,7 +30,7 @@ describe("budgets service", () => {
       userId,
       accountId: "00000000-0000-4000-8000-000000002001",
       type: "expense",
-      category: "Food",
+      category: "食 > 早餐",
       amount: 50,
       occurredAt: "2026-05-10T00:00:00.000Z"
     });

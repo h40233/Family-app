@@ -7,6 +7,7 @@ type OfflineTransactionBody = {
   clientMutationId?: unknown;
   type?: unknown;
   category?: unknown;
+  categoryId?: unknown;
   amount?: unknown;
   note?: unknown;
   occurredAt?: unknown;
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
           ? transaction.clientMutationId
           : undefined,
       type: transaction.type === "income" ? "income" : "expense",
+      categoryId: typeof transaction.categoryId === "string" ? transaction.categoryId : undefined,
       category: typeof transaction.category === "string" ? transaction.category : undefined,
       amount: Number(transaction.amount ?? 0),
       note: typeof transaction.note === "string" ? transaction.note : undefined,

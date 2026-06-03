@@ -62,7 +62,7 @@ async function getDatabaseReportsSummary(input: {
         type: MoneyTransactionType.EXPENSE,
         deletedAt: null
       },
-      include: { category: true }
+      include: { category: { include: { parent: true } } }
     }),
     prisma.personalAccount.findMany({
       where: {
@@ -82,7 +82,7 @@ async function getDatabaseReportsSummary(input: {
 
   const expenseByCategory = new Map<string, number>();
   for (const transaction of transactions) {
-    const category = transaction.category?.name ?? "Uncategorized";
+    const category = transaction.category ? formatCategoryName(transaction.category) : "Uncategorized";
     expenseByCategory.set(
       category,
       (expenseByCategory.get(category) ?? 0) + Number(transaction.amount)
@@ -193,4 +193,8 @@ function escapeXml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
+}
+
+function formatCategoryName(category: { name: string; parent?: { name: string } | null }) {
+  return category.parent ? `${category.parent.name} > ${category.name}` : category.name;
 }
