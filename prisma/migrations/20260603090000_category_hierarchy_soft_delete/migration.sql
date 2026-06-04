@@ -1,16 +1,23 @@
 ALTER TABLE "categories"
-  ADD COLUMN "parent_id" UUID,
-  ADD COLUMN "is_system" BOOLEAN NOT NULL DEFAULT false,
-  ADD COLUMN "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  ADD COLUMN "deleted_at" TIMESTAMPTZ(6);
+  ADD COLUMN IF NOT EXISTS "parent_id" UUID,
+  ADD COLUMN IF NOT EXISTS "is_system" BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMPTZ(6);
 
-ALTER TABLE "categories"
-  ADD CONSTRAINT "categories_parent_id_fkey"
-  FOREIGN KEY ("parent_id") REFERENCES "categories"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'categories_parent_id_fkey'
+  ) THEN
+    ALTER TABLE "categories"
+      ADD CONSTRAINT "categories_parent_id_fkey"
+      FOREIGN KEY ("parent_id") REFERENCES "categories"("id")
+      ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
 
-CREATE INDEX "categories_parent_id_idx" ON "categories"("parent_id");
-CREATE INDEX "categories_scope_type_idx" ON "categories"("scope", "type");
+CREATE INDEX IF NOT EXISTS "categories_parent_id_idx" ON "categories"("parent_id");
+CREATE INDEX IF NOT EXISTS "categories_scope_type_idx" ON "categories"("scope", "type");
 
 INSERT INTO "categories" ("id", "scope", "type", "name", "is_system", "created_at", "updated_at")
 VALUES
