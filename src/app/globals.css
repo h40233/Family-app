@@ -195,6 +195,13 @@ button:disabled {
   margin: 0.65rem 0 0;
 }
 
+.success-text {
+  color: var(--primary-dark);
+  font-weight: 700;
+  line-height: 1.6;
+  margin: 0.65rem 0 1rem;
+}
+
 .danger-inline {
   color: var(--danger);
 }
@@ -281,13 +288,27 @@ article strong {
 
 .module-form input,
 .module-form select,
-.auth-form input {
+.auth-form input,
+.stack-form input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
   font: inherit;
   min-width: 0;
   padding: 0.75rem 0.9rem;
+}
+
+.stack-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.stack-form label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.9rem;
+  font-weight: 700;
+  gap: 0.35rem;
 }
 
 .auth-toggle {
@@ -323,6 +344,40 @@ article strong {
 
 .module-row span {
   font-weight: 700;
+}
+
+.family-row {
+  align-items: flex-start;
+}
+
+.family-row > div {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.family-code {
+  background: #f2f4f1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  display: inline-block;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  padding: 0.35rem 0.5rem;
+}
+
+.panel-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.25rem 0;
+}
+
+.empty-state-action {
+  margin-top: 1rem;
 }
 
 .task-list {

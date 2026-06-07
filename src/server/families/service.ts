@@ -9,6 +9,7 @@ import type {
   Family,
   FamilyMember,
   InviteFamilyMemberInput,
+  JoinFamilyInput,
   UpdateFamilyInput,
   UpdateFamilyMemberInput
 } from "./types";
@@ -42,10 +43,15 @@ export async function createFamily(
   user: AuthUser,
   input: CreateFamilyInput
 ): Promise<Family & { ownerUserId: string }> {
+  const name = input.name?.trim();
+  if (!name) {
+    throw new Error("Family name is required.");
+  }
+
   if (usesDatabaseRuntime("families")) {
     const family = await prisma.family.create({
       data: {
-        name: input.name,
+        name,
         ownerUserId: user.id,
         members: {
           create: {
@@ -64,7 +70,7 @@ export async function createFamily(
   const createdAt = nowIso();
   const family: Family & { ownerUserId: string } = {
     id: createId("family"),
-    name: input.name,
+    name,
     plan: "free",
     ownerUserId: user.id,
     createdAt,
@@ -82,6 +88,103 @@ export async function createFamily(
   });
 
   return family;
+}
+
+export async function joinFamily(
+  user: AuthUser,
+  input: JoinFamilyInput
+): Promise<FamilyMember & { family: Family }> {
+  const familyId = input.familyCode?.trim();
+  if (!familyId) {
+    throw new Error("Family code is required.");
+  }
+
+  if (usesDatabaseRuntime("families")) {
+    const role = user.isChildAccount ? "CHILD" : "MEMBER";
+    const family = await prisma.family.findFirst({
+      where: { id: familyId, deletedAt: null }
+    });
+
+    if (!family) {
+      throw new Error("Family not found.");
+    }
+
+    const activeMember = await prisma.familyMember.findFirst({
+      where: { familyId, userId: user.id, deletedAt: null },
+      include: { family: true, user: true }
+    });
+
+    if (activeMember) {
+      return {
+        ...toFamilyMember(activeMember),
+        family: toFamily(activeMember.family)
+      };
+    }
+
+    const deletedMember = await prisma.familyMember.findFirst({
+      where: { familyId, userId: user.id, deletedAt: { not: null } },
+      include: { family: true, user: true }
+    });
+
+    if (deletedMember) {
+      const restoredMember = await prisma.familyMember.update({
+        where: { id: deletedMember.id },
+        data: {
+          deletedAt: null,
+          role,
+          permissions: {}
+        },
+        include: { family: true, user: true }
+      });
+
+      return {
+        ...toFamilyMember(restoredMember),
+        family: toFamily(restoredMember.family)
+      };
+    }
+
+    const member = await prisma.familyMember.create({
+      data: {
+        familyId,
+        userId: user.id,
+        role,
+        permissions: {}
+      },
+      include: { family: true, user: true }
+    });
+
+    return {
+      ...toFamilyMember(member),
+      family: toFamily(member.family)
+    };
+  }
+
+  const store = getMemoryStore();
+  const family = store.families.find((item) => item.id === familyId);
+  if (!family) {
+    throw new Error("Family not found.");
+  }
+
+  const existingMember = store.familyMembers.find(
+    (member) => member.familyId === familyId && member.userId === user.id
+  );
+
+  if (existingMember) {
+    return { ...existingMember, family };
+  }
+
+  const member: FamilyMember = {
+    id: createId("member"),
+    familyId,
+    userId: user.id,
+    displayName: user.displayName,
+    role: user.isChildAccount ? "child" : "member",
+    isChildAccount: user.isChildAccount
+  };
+
+  store.familyMembers.push(member);
+
+  return { ...member, family };
 }
 
 export async function getFamily(

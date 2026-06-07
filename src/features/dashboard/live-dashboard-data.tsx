@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AuthForm } from "@/components/auth/auth-form";
 
@@ -131,10 +132,17 @@ export function LiveDashboardData() {
   }
 
   if (state.status === "error") {
+    const canManageFamily = state.message === "目前帳號還沒有加入任何家庭。";
+
     return (
       <section className="panel">
         <h2>即時資料</h2>
         <p className="error-text">{state.message}</p>
+        {canManageFamily ? (
+          <Link className="button-link empty-state-action" href="/families">
+            建立或加入家庭
+          </Link>
+        ) : null}
       </section>
     );
   }

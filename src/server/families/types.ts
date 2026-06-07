@@ -23,6 +23,10 @@ export type CreateFamilyInput = {
   name: string;
 };
 
+export type JoinFamilyInput = {
+  familyCode: string;
+};
+
 export type UpdateFamilyInput = {
   name?: string;
 };

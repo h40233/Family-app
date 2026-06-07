@@ -14,6 +14,7 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { href: "/", label: "首頁", description: "家庭總覽" },
+  { href: "/families", label: "家庭", description: "建立與加入家庭" },
   { href: "/money/personal", label: "個人記帳", description: "帳戶與交易紀錄" },
   { href: "/money/shared-funds", label: "共用基金", description: "家庭基金餘額" },
   { href: "/tasks", label: "任務清單", description: "家務與審核" },
