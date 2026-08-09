@@ -11,40 +11,58 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "smoke": "node scripts/smoke-test.mjs",
-    "audit": "npm audit --audit-level=moderate",
+    "audit": "npm audit --omit=dev --audit-level=moderate",
+    "audit:all": "npm audit --audit-level=moderate",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run audit && npm run build",
     "env:check": "node scripts/check-env.mjs",
-    "db:validate": "prisma validate",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate deploy",
-    "db:check": "node scripts/check-db.mjs",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:smoke:money": "tsx scripts/check-money-db.ts",
-    "db:backup": "node scripts/backup-database.mjs"
+    "db:validate": "node scripts/with-local-env.mjs prisma validate",
+    "db:generate": "node scripts/with-local-env.mjs prisma generate",
+    "db:migrate": "node scripts/with-local-env.mjs prisma migrate deploy",
+    "db:check": "node scripts/with-local-env.mjs node scripts/check-db.mjs",
+    "db:seed": "node scripts/with-local-env.mjs tsx prisma/seed.ts",
+    "db:smoke:money": "node scripts/with-local-env.mjs tsx scripts/check-money-db.ts",
+    "db:local:start": "node scripts/local-postgres.mjs start",
+    "db:local:stop": "node scripts/local-postgres.mjs stop",
+    "db:local:status": "node scripts/local-postgres.mjs status",
+    "db:local:env": "node scripts/local-postgres.mjs env",
+    "db:local:verify": "node scripts/local-postgres.mjs verify",
+    "db:backup": "node scripts/with-local-env.mjs node scripts/backup-database.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.8.2",
     "dexie": "^4.0.11",
-    "next": "^15.5.18",
+    "next": "^15.5.22",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "web-push": "^3.6.7",
     "zod": "^3.25.32"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.62.0",
     "@types/node": "^22.15.24",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
     "@types/web-push": "^3.6.4",
-    "eslint": "^9.27.0",
-    "eslint-config-next": "^15.5.18",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.22",
     "prisma": "^6.8.2",
-    "tsx": "^4.22.4",
+    "tsx": "^4.23.1",
     "typescript": "^5.8.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.10"
   },
   "overrides": {
-    "postcss": "^8.5.15"
+    "postcss": "^8.5.23",
+    "sharp": "^0.35.0",
+    "esbuild": "^0.28.1",
+    "js-yaml": "^4.3.0",
+    "minimatch@3.1.5": {
+      "brace-expansion": "^1.1.16"
+    },
+    "minimatch@10.2.5": {
+      "brace-expansion": "^5.0.8"
+    },
+    "minimatch@10.2.2": {
+      "brace-expansion": "^5.0.8"
+    }
   }
 }

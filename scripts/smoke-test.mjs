@@ -1,13 +1,7 @@
 const baseUrl = process.env.FAMILY_OS_BASE_URL ?? "http://localhost:3000";
 
-const childHeaders = {
-  "content-type": "application/json",
-  "x-family-os-user-id": "00000000-0000-4000-8000-000000000002",
-  "x-family-os-user-name": "Development Child",
-  "x-family-os-child": "true"
-};
-
 let sessionCookie = "";
+let childSessionCookie = "";
 
 const checks = [
   {
@@ -35,6 +29,24 @@ const checks = [
     useSessionCookie: true
   },
   {
+    name: "child login creates session cookie",
+    request: [
+      "/api/v1/auth/child-login",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          familyCode: "00000000-0000-4000-8000-000000001001",
+          username: "child",
+          pin: "0000"
+        })
+      }
+    ],
+    expectStatus: 201,
+    expectText: "00000000-0000-4000-8000-000000000002",
+    captureCookie: "child"
+  },
+  {
     name: "health API",
     request: ["/api/v1/health"],
     expectStatus: 200
@@ -55,7 +67,7 @@ const checks = [
     name: "dashboard page",
     request: ["/"],
     expectStatus: 200,
-    expectText: "Family OS"
+    expectText: "家庭總覽"
   },
   {
     name: "personal money page",
@@ -125,7 +137,7 @@ const checks = [
     name: "budgets list",
     request: ["/api/v1/families/00000000-0000-4000-8000-000000001001/budgets"],
     expectStatus: 200,
-    expectText: "Monthly Food Budget",
+    expectText: '"amount":3000',
     useSessionCookie: true
   },
   {
@@ -157,8 +169,9 @@ const checks = [
   },
   {
     name: "child can list wishes",
-    request: ["/api/v1/families/00000000-0000-4000-8000-000000001001/wishes", { headers: childHeaders }],
-    expectStatus: 200
+    request: ["/api/v1/families/00000000-0000-4000-8000-000000001001/wishes"],
+    expectStatus: 200,
+    useChildSessionCookie: true
   },
   {
     name: "child cannot review tasks",
@@ -166,7 +179,7 @@ const checks = [
       "/api/v1/families/00000000-0000-4000-8000-000000001001/tasks/00000000-0000-4000-8000-000000004001/review",
       {
         method: "POST",
-        headers: childHeaders,
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           completionId: "missing",
           approved: true,
@@ -174,24 +187,28 @@ const checks = [
         })
       }
     ],
-    expectStatus: 403
+    expectStatus: 403,
+    useChildSessionCookie: true
   },
   {
     name: "child cannot delete wishes",
     request: [
       "/api/v1/families/00000000-0000-4000-8000-000000001001/wishes/00000000-0000-4000-8000-000000005001",
       {
-        method: "DELETE",
-        headers: childHeaders
+        method: "DELETE"
       }
     ],
-    expectStatus: 403
+    expectStatus: 403,
+    useChildSessionCookie: true
   }
 ];
 
 async function runCheck(check) {
   const [path, rawInit] = check.request;
-  const init = withSessionCookie(rawInit ?? {}, check.useSessionCookie);
+  const init = withSessionCookie(
+    rawInit ?? {},
+    check.useChildSessionCookie ? "child" : check.useSessionCookie ? "owner" : null
+  );
   const response = await fetch(new URL(path, baseUrl), init);
   const text = await response.text();
 
@@ -212,15 +229,21 @@ async function runCheck(check) {
     if (!cookie.startsWith("family_os_session=")) {
       throw new Error(`${check.name}: response did not include a session cookie`);
     }
-    sessionCookie = cookie;
+    if (check.captureCookie === "child") {
+      childSessionCookie = cookie;
+    } else {
+      sessionCookie = cookie;
+    }
   }
 
   console.log(`ok - ${check.name}`);
 }
 
-function withSessionCookie(init, enabled) {
-  if (!enabled) return init;
-  if (!sessionCookie) {
+function withSessionCookie(init, cookieOwner) {
+  if (!cookieOwner) return init;
+
+  const cookie = cookieOwner === "child" ? childSessionCookie : sessionCookie;
+  if (!cookie) {
     throw new Error("Session cookie was requested before login completed");
   }
 
@@ -228,7 +251,7 @@ function withSessionCookie(init, enabled) {
     ...init,
     headers: {
       ...(init.headers ?? {}),
-      cookie: sessionCookie
+      cookie
     }
   };
 }

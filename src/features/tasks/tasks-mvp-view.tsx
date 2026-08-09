@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { useActiveFamily } from "@/features/families/use-active-family";
+import { useOnlineStatus } from "@/features/money/use-online-status";
 import { apiRequest, errorMessage } from "@/lib/api-client";
 
 type TaskApprovalMode = "auto" | "review";
@@ -18,6 +19,7 @@ type TaskSummary = {
   reviewerUserId?: string;
   status: TaskStatus;
   dueAt?: string;
+  repeatRule?: string;
 };
 type TaskCompletion = {
   id: string;
@@ -53,6 +55,7 @@ function activeFamilyMessage(status: Exclude<ReturnType<typeof useActiveFamily>[
 
 export function TasksMvpView() {
   const activeFamily = useActiveFamily();
+  const online = useOnlineStatus();
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [completions, setCompletions] = useState<Record<string, TaskCompletion>>({});
@@ -62,6 +65,7 @@ export function TasksMvpView() {
   const [selectedAssigneeId, setSelectedAssigneeId] = useState("");
   const [selectedReviewerId, setSelectedReviewerId] = useState("");
   const [dueAt, setDueAt] = useState("");
+  const [repeatRule, setRepeatRule] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -108,6 +112,10 @@ export function TasksMvpView() {
   async function createTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (activeFamily.status !== "ready") return;
+    if (!online) {
+      setMessage("離線時不能修改任務。");
+      return;
+    }
     if (!title.trim()) return;
     const assigneeId = selectedAssigneeId || activeFamily.user.id;
     const reviewerUserId = selectedReviewerId || activeFamily.user.id;
@@ -120,6 +128,7 @@ export function TasksMvpView() {
           maxPoints,
           approvalMode,
           dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
+          repeatRule: repeatRule || undefined,
           assigneeIds: [assigneeId],
           reviewerUserId: approvalMode === "review" ? reviewerUserId : undefined
         })
@@ -128,6 +137,7 @@ export function TasksMvpView() {
       setTitle("");
       setMaxPoints(10);
       setDueAt("");
+      setRepeatRule("");
       setMessage("任務已建立。");
     } catch (error) {
       setMessage(errorMessage(error));
@@ -136,6 +146,10 @@ export function TasksMvpView() {
 
   async function completeTask(task: TaskSummary) {
     if (activeFamily.status !== "ready") return;
+    if (!online) {
+      setMessage("離線時不能完成任務。");
+      return;
+    }
 
     try {
       const completion = await apiRequest<TaskCompletion>(`/api/v1/families/${activeFamily.family.id}/tasks/${task.id}/complete`, {
@@ -151,6 +165,10 @@ export function TasksMvpView() {
 
   async function reviewTask(task: TaskSummary, approved: boolean) {
     if (activeFamily.status !== "ready") return;
+    if (!online) {
+      setMessage("離線時不能審核任務。");
+      return;
+    }
     const completion = completions[task.id];
     if (!completion) return;
 
@@ -222,13 +240,14 @@ export function TasksMvpView() {
                     <small>{task.maxPoints} 點 / {task.approvalMode === "auto" ? "自動" : "審核"} / {statusLabel(task, completion)}</small>
                     <small>指派給 {assignees}</small>
                     {task.dueAt ? <small>期限 {new Date(task.dueAt).toLocaleString()}</small> : null}
+                    {task.repeatRule ? <small>重複：{task.repeatRule}</small> : null}
                   </div>
                   <div className="topbar-action">
-                    <button type="button" onClick={() => void completeTask(task)} style={{ whiteSpace: "nowrap" }}>完成</button>
+                    <button type="button" onClick={() => void completeTask(task)} disabled={!online} style={{ whiteSpace: "nowrap" }}>完成</button>
                     {completion?.status === "pending_review" ? (
                       <>
-                        <button type="button" onClick={() => void reviewTask(task, true)} style={{ whiteSpace: "nowrap" }}>通過</button>
-                        <button type="button" onClick={() => void reviewTask(task, false)} style={{ background: "var(--danger)", whiteSpace: "nowrap" }}>駁回</button>
+                        <button type="button" onClick={() => void reviewTask(task, true)} disabled={!online} style={{ whiteSpace: "nowrap" }}>通過</button>
+                        <button type="button" onClick={() => void reviewTask(task, false)} disabled={!online} style={{ background: "var(--danger)", whiteSpace: "nowrap" }}>駁回</button>
                       </>
                     ) : null}
                   </div>
@@ -265,7 +284,16 @@ export function TasksMvpView() {
               </label>
             ) : null}
             <label><small>期限</small><input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
-            <button type="submit" disabled={loading}>建立任務</button>
+            <label>
+              <small>重複規則</small>
+              <select value={repeatRule} onChange={(event) => setRepeatRule(event.target.value)}>
+                <option value="">不重複</option>
+                <option value="daily">每日</option>
+                <option value="weekly">每週</option>
+                <option value="monthly">每月</option>
+              </select>
+            </label>
+            <button type="submit" disabled={loading || !online}>建立任務</button>
           </form>
         </section>
       </div>

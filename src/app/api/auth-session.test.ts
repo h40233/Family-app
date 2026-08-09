@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetAuthSessionStore } from "@/server/auth";
 import { resetMemoryStore } from "@/server/store";
 import { POST as childLoginRoute } from "./v1/auth/child-login/route";
@@ -62,6 +62,19 @@ describe("auth cookie session routes", () => {
     });
   });
 
+  it("rejects registration passwords shorter than eight characters", async () => {
+    const registerResponse = await registerRoute(
+      jsonRequest("/auth/register", {
+        displayName: "Short Password User",
+        email: "short-password@example.test",
+        password: "short"
+      })
+    );
+
+    expect(registerResponse.status).toBe(400);
+    expect(registerResponse.headers.get("set-cookie") ?? "").not.toContain("family_os_session=");
+  });
+
   it("logs in with a cookie-backed session and logs out by clearing it", async () => {
     const loginResponse = await loginRoute(
       jsonRequest("/auth/login", {
@@ -100,5 +113,44 @@ describe("auth cookie session routes", () => {
         }
       }
     });
+  });
+
+  it("rejects development auth headers in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    try {
+      const response = await meRoute(
+        new Request("http://localhost/api/v1/auth/me", {
+          headers: {
+            "x-family-os-user-id": "00000000-0000-4000-8000-000000000001",
+            "x-family-os-user-name": "Development User"
+          }
+        })
+      );
+
+      expect(response.status).toBe(401);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("does not create memory login sessions in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("FAMILY_OS_DATA_SOURCE", "memory");
+    vi.stubEnv("FAMILY_OS_AUTH_DATA_SOURCE", "memory");
+
+    try {
+      const response = await loginRoute(
+        jsonRequest("/auth/login", {
+          email: "dev@family-os.local",
+          password: "pass1234"
+        })
+      );
+
+      expect(response.status).not.toBe(201);
+      expect(response.headers.get("set-cookie") ?? "").not.toContain("family_os_session=");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

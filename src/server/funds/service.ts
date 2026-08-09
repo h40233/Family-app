@@ -24,11 +24,14 @@ export async function listSharedFunds(familyId: string): Promise<SharedFund[]> {
 }
 
 export async function createSharedFund(input: CreateSharedFundInput): Promise<SharedFund> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Shared fund name is required.");
+
   if (usesDatabaseRuntime("funds")) {
     const fund = await prisma.sharedFund.create({
       data: {
         familyId: input.familyId,
-        name: input.name,
+        name,
         balance: 0,
         permissions: {},
         createdBy: input.actorUserId
@@ -42,7 +45,7 @@ export async function createSharedFund(input: CreateSharedFundInput): Promise<Sh
   const fund: SharedFund = {
     id: createId("shared_fund"),
     familyId: input.familyId,
-    name: input.name,
+    name,
     balance: 0,
     createdBy: input.actorUserId,
     createdAt: timestamp,
@@ -82,6 +85,8 @@ export async function listFundTransactions(input: {
 export async function createFundTransaction(
   input: CreateFundTransactionInput
 ): Promise<FundTransaction> {
+  validateFundTransactionAmount(input.amount);
+
   if (usesDatabaseRuntime("funds")) {
     return createDatabaseFundTransaction(input);
   }
@@ -264,4 +269,10 @@ function toFundTransaction(transaction: {
     occurredAt: transaction.occurredAt.toISOString(),
     createdAt: transaction.createdAt.toISOString()
   };
+}
+
+function validateFundTransactionAmount(amount: number) {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Fund transaction amount must be greater than 0.");
+  }
 }

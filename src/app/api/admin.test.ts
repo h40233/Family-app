@@ -119,6 +119,56 @@ describe("admin routes", () => {
     });
   });
 
+  it("requires a reason before banning a user", async () => {
+    const banResponse = await banRoute(
+      request(`/admin/users/${childId}/ban`, {
+        method: "POST",
+        body: JSON.stringify({ reason: " " })
+      }),
+      userContext()
+    );
+
+    expect(banResponse.status).toBe(400);
+
+    const usersResponse = await usersRoute(request("/admin/users"));
+    await expect(usersResponse.json()).resolves.toMatchObject({
+      data: {
+        users: [expect.objectContaining({ id: ownerId }), expect.objectContaining({ id: childId, bannedAt: null })]
+      }
+    });
+  });
+
+  it("filters and paginates admin user lists", async () => {
+    const filteredResponse = await usersRoute(request(`/admin/users?search=${childId}&limit=1`));
+
+    expect(filteredResponse.status).toBe(200);
+    await expect(filteredResponse.json()).resolves.toMatchObject({
+      data: {
+        users: [expect.objectContaining({ id: childId })],
+        nextCursor: null
+      }
+    });
+
+    const firstPageResponse = await usersRoute(request("/admin/users?limit=1"));
+    const firstPagePayload = await firstPageResponse.json() as {
+      data: { users: Array<{ id: string }>; nextCursor: string | null };
+    };
+
+    expect(firstPagePayload.data.users).toHaveLength(1);
+    expect(firstPagePayload.data.nextCursor).toBe("1");
+
+    const secondPageResponse = await usersRoute(
+      request(`/admin/users?limit=1&cursor=${firstPagePayload.data.nextCursor}`)
+    );
+    const secondPagePayload = await secondPageResponse.json() as {
+      data: { users: Array<{ id: string }>; nextCursor: string | null };
+    };
+
+    expect(secondPagePayload.data.users).toHaveLength(1);
+    expect(secondPagePayload.data.users[0].id).not.toBe(firstPagePayload.data.users[0].id);
+    expect(secondPagePayload.data.nextCursor).toBeNull();
+  });
+
   it("updates ad placements and records the admin action", async () => {
     const response = await adsRoute(
       request("/admin/ads", {

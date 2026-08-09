@@ -1,6 +1,7 @@
 import { jsonData } from "@/lib/api-response";
 import { apiRouteError, readJsonBody, requireAuth } from "@/server/auth";
 import {
+  assertPermission,
   getResourcePermissionOverrides,
   updateResourcePermissionOverrides,
   type ResourcePermissionOverride
@@ -36,9 +37,10 @@ export async function GET(request: Request, context: Context) {
 
 export async function PATCH(request: Request, context: Context) {
   try {
-    await requireAuth(request);
+    const user = await requireAuth(request);
     const { familyId, resourceType, resourceId } = await context.params;
     const body = await readJsonBody<Body>(request);
+    await assertPermission({ userId: user.id, familyId, resourceType: "family", action: "update" });
     const result = await updateResourcePermissionOverrides(
       familyId,
       resourceType,

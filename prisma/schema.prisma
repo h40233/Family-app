@@ -119,6 +119,7 @@ model User {
   pushSubscriptions       PushSubscription[]
   auditLogs               AuditLog[]               @relation("AuditActor")
   authSessions            AuthSession[]
+  preferences             UserPreference?
 
   @@index([parentUserId])
   @@map("users")
@@ -137,6 +138,16 @@ model AuthSession {
   @@index([userId])
   @@index([expiresAt])
   @@map("auth_sessions")
+}
+
+model UserPreference {
+  userId    String   @id @map("user_id") @db.Uuid
+  theme     String   @default("classic")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_preferences")
 }
 
 model Family {
@@ -163,6 +174,8 @@ model Family {
   wishes                  Wish[]
   wishRedemptions         WishRedemption[]
   notifications           Notification[]
+  billingCheckoutSessions BillingCheckoutSession[]
+  billingWebhookEvents    BillingWebhookEvent[]
   auditLogs               AuditLog[]
 
   @@index([ownerUserId])
@@ -559,6 +572,54 @@ model PushSubscription {
   @@unique([endpoint])
   @@index([userId])
   @@map("push_subscriptions")
+}
+
+model BillingCheckoutSession {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId          String   @map("family_id") @db.Uuid
+  provider          String
+  providerSessionId String?  @map("provider_session_id")
+  plan              PlanType
+  status            String
+  checkoutUrl       String   @map("checkout_url")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  family Family @relation(fields: [familyId], references: [id])
+
+  @@unique([provider, providerSessionId])
+  @@index([familyId])
+  @@map("billing_checkout_sessions")
+}
+
+model BillingWebhookEvent {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  familyId          String   @map("family_id") @db.Uuid
+  provider          String
+  providerEventId   String   @map("provider_event_id")
+  eventType         String   @map("event_type")
+  providerSessionId String?  @map("provider_session_id")
+  plan              String
+  rawBody           String   @map("raw_body") @db.Text
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  processedAt       DateTime @default(now()) @map("processed_at") @db.Timestamptz(6)
+
+  family Family @relation(fields: [familyId], references: [id])
+
+  @@unique([provider, providerEventId])
+  @@index([familyId])
+  @@index([providerSessionId])
+  @@map("billing_webhook_events")
+}
+
+model AdPlacement {
+  id        String   @id
+  name      String
+  location  String
+  enabled   Boolean  @default(true)
+  label     String
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("ad_placements")
 }
 
 model AuditLog {

@@ -4,6 +4,10 @@ import {
   GET as listBudgetsRoute,
   POST as createBudgetRoute
 } from "./v1/families/[familyId]/budgets/route";
+import {
+  DELETE as deleteBudgetRoute,
+  PATCH as updateBudgetRoute
+} from "./v1/families/[familyId]/budgets/[budgetId]/route";
 
 const familyId = "00000000-0000-4000-8000-000000001001";
 const ownerHeaders = {
@@ -25,6 +29,12 @@ function ownerRequest(path: string, init: RequestInit = {}) {
 function familyContext() {
   return {
     params: Promise.resolve({ familyId })
+  };
+}
+
+function budgetContext(budgetId: string) {
+  return {
+    params: Promise.resolve({ familyId, budgetId })
   };
 }
 
@@ -78,6 +88,49 @@ describe("budget routes", () => {
         spent: 0,
         remaining: 500,
         exceeded: false
+      }
+    });
+  });
+
+  it("updates a budget and returns recalculated usage", async () => {
+    const response = await updateBudgetRoute(
+      ownerRequest(`/families/${familyId}/budgets/00000000-0000-4000-8000-000000002301`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: "Edited Food Budget",
+          amount: 50
+        })
+      }),
+      budgetContext("00000000-0000-4000-8000-000000002301")
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        budget: {
+          name: "Edited Food Budget",
+          amount: 50
+        },
+        spent: 80,
+        remaining: -30,
+        exceeded: true
+      }
+    });
+  });
+
+  it("deletes a budget", async () => {
+    const response = await deleteBudgetRoute(
+      ownerRequest(`/families/${familyId}/budgets/00000000-0000-4000-8000-000000002301`, {
+        method: "DELETE"
+      }),
+      budgetContext("00000000-0000-4000-8000-000000002301")
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        id: "00000000-0000-4000-8000-000000002301",
+        deleted: true
       }
     });
   });

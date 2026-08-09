@@ -1,6 +1,7 @@
 import { jsonData } from "@/lib/api-response";
 import { apiRouteError, readJsonBody, requireAuth } from "@/server/auth";
 import {
+  assertPermission,
   updateRolePermissions,
   type FamilyRole,
   type Permission
@@ -16,10 +17,11 @@ type Body = {
 
 export async function PATCH(request: Request, context: Context) {
   try {
-    await requireAuth(request);
+    const user = await requireAuth(request);
     const { familyId, role } = await context.params;
     const familyRole = parseFamilyRole(role);
     const body = await readJsonBody<Body>(request);
+    await assertPermission({ userId: user.id, familyId, resourceType: "family", action: "update" });
     const result = await updateRolePermissions(
       familyRole,
       body.permissions ?? [],

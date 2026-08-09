@@ -90,15 +90,7 @@ async function calculateDatabaseSpent(budget: Budget, userId: string) {
     include: { category: true }
   });
 
-  return transactions
-    .filter((transaction) => {
-      if (budget.targetType === "personal_category" && budget.category) {
-        return transaction.category?.name === budget.category;
-      }
-
-      return true;
-    })
-    .reduce((sum, transaction) => sum + Number(transaction.amount), 0);
+  return transactions.reduce((sum, transaction) => sum + Number(transaction.amount), 0);
 }
 
 function toBudget(budget: {
@@ -254,7 +246,13 @@ export async function updateBudget(input: UpdateBudgetInput): Promise<BudgetUsag
         ? input.category?.trim() || (await getCategoryName(targetId))
         : undefined;
 
-    return toDatabaseBudgetUsage(toBudget(updated, categoryName), input.userId);
+    const usage = await toDatabaseBudgetUsage(toBudget(updated, categoryName), input.userId);
+    await notifyBudgetUsageExceeded({
+      familyId: merged.familyId,
+      userId: input.userId,
+      usage
+    });
+    return usage;
   }
 
   const store = getMemoryStore();
@@ -285,7 +283,13 @@ export async function updateBudget(input: UpdateBudgetInput): Promise<BudgetUsag
 
   const index = store.budgets.findIndex((item) => item.id === budget.id);
   store.budgets[index] = budget;
-  return toBudgetUsage(budget, input.userId);
+  const usage = toBudgetUsage(budget, input.userId);
+  await notifyBudgetUsageExceeded({
+    familyId: budget.familyId,
+    userId: input.userId,
+    usage
+  });
+  return usage;
 }
 
 export async function deleteBudget(input: {
@@ -325,30 +329,44 @@ export async function notifyBudgetOverages(input: {
         .filter((usage) => usage.exceeded);
 
   for (const usage of usages) {
-    const alreadySent = await hasBudgetOverageNotification({
+    await notifyBudgetUsageExceeded({
       familyId: input.familyId,
       userId: input.userId,
-      budgetId: usage.budget.id,
-      spent: usage.spent
-    });
-
-    if (alreadySent) continue;
-
-    await createNotification({
-      userId: input.userId,
-      familyId: input.familyId,
-      type: "budget_exceeded",
-      title: "Budget exceeded",
-      body: `${usage.budget.name} is over budget by ${Math.abs(usage.remaining).toLocaleString()}.`,
-      data: {
-        budgetId: usage.budget.id,
-        spent: usage.spent,
-        remaining: usage.remaining
-      }
+      usage
     });
   }
 
   return usages;
+}
+
+async function notifyBudgetUsageExceeded(input: {
+  familyId: string;
+  userId: string;
+  usage: BudgetUsage;
+}) {
+  if (!input.usage.exceeded) return;
+
+  const alreadySent = await hasBudgetOverageNotification({
+    familyId: input.familyId,
+    userId: input.userId,
+    budgetId: input.usage.budget.id,
+    spent: input.usage.spent
+  });
+
+  if (alreadySent) return;
+
+  await createNotification({
+    userId: input.userId,
+    familyId: input.familyId,
+    type: "budget_exceeded",
+    title: "Budget exceeded",
+    body: `${input.usage.budget.name} is over budget by ${Math.abs(input.usage.remaining).toLocaleString()}.`,
+    data: {
+      budgetId: input.usage.budget.id,
+      spent: input.usage.spent,
+      remaining: input.usage.remaining
+    }
+  });
 }
 
 function findBudget(familyId: string, budgetId: string) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { AdPlacement } from "@/components/billing/ad-placement";
 
@@ -36,6 +36,10 @@ export function ReportsView() {
   const [plan, setPlan] = useState<PlanStatus | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
+  const [editingBudgetName, setEditingBudgetName] = useState("");
+  const [editingBudgetCategory, setEditingBudgetCategory] = useState("");
+  const [editingBudgetAmount, setEditingBudgetAmount] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +114,50 @@ export function ReportsView() {
     setBudgets((current) => [body.data, ...current]);
   }
 
+  function startBudgetEdit(item: BudgetUsage) {
+    setEditingBudgetId(item.budget.id);
+    setEditingBudgetName(item.budget.name);
+    setEditingBudgetCategory(item.budget.category ?? "");
+    setEditingBudgetAmount(String(item.budget.amount));
+  }
+
+  async function saveBudgetEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!familyId || !editingBudgetId) return;
+    setMessage("");
+    const response = await fetch(`/api/v1/families/${familyId}/budgets/${editingBudgetId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: editingBudgetName,
+        category: editingBudgetCategory,
+        amount: Number(editingBudgetAmount)
+      })
+    });
+    const body = (await response.json()) as ApiEnvelope<BudgetUsage>;
+    if (!response.ok) {
+      setMessage("無法更新預算。");
+      return;
+    }
+    setBudgets((current) =>
+      current.map((item) => (item.budget.id === body.data.budget.id ? body.data : item))
+    );
+    setEditingBudgetId(null);
+  }
+
+  async function removeBudget(budgetId: string) {
+    if (!familyId) return;
+    setMessage("");
+    const response = await fetch(`/api/v1/families/${familyId}/budgets/${budgetId}`, {
+      method: "DELETE"
+    });
+    if (!response.ok) {
+      setMessage("無法刪除預算。");
+      return;
+    }
+    setBudgets((current) => current.filter((item) => item.budget.id !== budgetId));
+  }
+
   const monthlyExpense = summary?.monthlyExpenseByCategory.reduce((sum, item) => sum + item.amount, 0) ?? 0;
   const accountTotal = summary?.accountBalances.reduce((sum, item) => sum + item.balance, 0) ?? 0;
   const fundTotal = summary?.fundBalances.reduce((sum, item) => sum + item.balance, 0) ?? 0;
@@ -162,8 +210,28 @@ export function ReportsView() {
           <div className="module-list">
             {budgets.map((item) => (
               <div className="module-row" key={item.budget.id}>
-                <span>{item.budget.name}{item.budget.category ? `（${item.budget.category}）` : ""}</span>
-                <small>已花 {formatCurrency(item.spent)} / 預算 {formatCurrency(item.budget.amount)} / 剩餘 <strong className={item.exceeded ? "danger-inline" : undefined}>{formatCurrency(item.remaining)}</strong></small>
+                {editingBudgetId === item.budget.id ? (
+                  <form onSubmit={(event) => void saveBudgetEdit(event)} className="module-form">
+                    <input value={editingBudgetName} onChange={(event) => setEditingBudgetName(event.target.value)} required />
+                    <input value={editingBudgetCategory} onChange={(event) => setEditingBudgetCategory(event.target.value)} />
+                    <input value={editingBudgetAmount} onChange={(event) => setEditingBudgetAmount(event.target.value)} inputMode="decimal" required />
+                    <div className="topbar-action">
+                      <button type="submit">儲存</button>
+                      <button type="button" onClick={() => setEditingBudgetId(null)}>取消</button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div>
+                      <span>{item.budget.name}{item.budget.category ? `（${item.budget.category}）` : ""}</span>
+                      <small>已花 {formatCurrency(item.spent)} / 預算 {formatCurrency(item.budget.amount)} / 剩餘 <strong className={item.exceeded ? "danger-inline" : undefined}>{formatCurrency(item.remaining)}</strong></small>
+                    </div>
+                    <div className="topbar-action">
+                      <button type="button" onClick={() => startBudgetEdit(item)}>編輯</button>
+                      <button type="button" className="danger-button" onClick={() => void removeBudget(item.budget.id)}>刪除</button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>

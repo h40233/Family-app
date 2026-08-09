@@ -1,18 +1,20 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { apiRequest, errorMessage, formatCurrency, formatDateTime } from "@/features/money/money-api";
 import {
-  clearOfflinePersonalQueue,
   createClientMutationId,
   enqueueOfflinePersonalTransaction,
   readOfflinePersonalQueue,
+  removeSyncedOfflinePersonalTransactions,
   type OfflinePersonalTransaction
 } from "@/features/money/offline-personal-queue";
 import { useOnlineStatus } from "@/features/money/use-online-status";
 
 type TransactionType = "income" | "expense";
+type PersonalSharingLevel = "none" | "balance_only" | "category_summary" | "partial_transactions" | "full";
+type FamiliesResponse = { families: Array<{ id: string; name: string }> };
 type PersonalAccount = { id: string; name: string; type: "cash" | "bank" | "e_wallet" | "other"; balance: number };
 type PersonalCategory = {
   id: string;
@@ -26,12 +28,22 @@ type PersonalCategory = {
 type PersonalTransaction = {
   id: string;
   accountId: string;
+  clientMutationId?: string;
   type: TransactionType;
   categoryId?: string;
   category?: string;
   amount: number;
   note?: string;
   occurredAt: string;
+};
+type FamilyPersonalSharingEntry = {
+  userId: string;
+  displayName: string;
+  sharingLevel: PersonalSharingLevel;
+  totalBalance?: number;
+  accounts?: Array<{ id: string; name: string; type: PersonalAccount["type"]; balance: number }>;
+  categorySummaries?: Array<{ category: string; income: number; expense: number; transactionCount: number }>;
+  transactions?: Array<{ id: string; accountName?: string; type: TransactionType; category?: string; amount: number; note?: string; occurredAt: string }>;
 };
 
 const accountTypeLabels: Record<PersonalAccount["type"], string> = {
@@ -44,6 +56,14 @@ const accountTypeLabels: Record<PersonalAccount["type"], string> = {
 const transactionTypeLabels: Record<TransactionType, string> = {
   expense: "支出",
   income: "收入"
+};
+
+const sharingLevelLabels: Record<PersonalSharingLevel, string> = {
+  none: "不分享",
+  balance_only: "只分享總餘額",
+  category_summary: "分類統計",
+  partial_transactions: "部分交易",
+  full: "完整帳本"
 };
 
 function flattenCategories(categories: PersonalCategory[]): PersonalCategory[] {
@@ -60,6 +80,11 @@ export function PersonalAccountingView() {
   const [accounts, setAccounts] = useState<PersonalAccount[]>([]);
   const [categories, setCategories] = useState<PersonalCategory[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [familyId, setFamilyId] = useState("");
+  const [sharingLevel, setSharingLevel] = useState<PersonalSharingLevel>("none");
+  const [sharingTransactionLimit, setSharingTransactionLimit] = useState(10);
+  const [sharingIncludeNotes, setSharingIncludeNotes] = useState(false);
+  const [familySharing, setFamilySharing] = useState<FamilyPersonalSharingEntry[]>([]);
   const [transactions, setTransactions] = useState<PersonalTransaction[]>([]);
   const [queuedTransactions, setQueuedTransactions] = useState<OfflinePersonalTransaction[]>([]);
   const [transactionType, setTransactionType] = useState<TransactionType>("expense");
@@ -74,6 +99,7 @@ export function PersonalAccountingView() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const syncInFlightRef = useRef(false);
 
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId);
   const totalBalance = useMemo(() => accounts.reduce((sum, account) => sum + account.balance, 0), [accounts]);
@@ -111,6 +137,18 @@ export function PersonalAccountingView() {
     setTransactions(await apiRequest<PersonalTransaction[]>(`/api/v1/personal/accounts/${accountId}/transactions`));
   }
 
+  async function loadSharing(nextFamilyId: string) {
+    const [setting, sharing] = await Promise.all([
+      apiRequest<{ sharingLevel: PersonalSharingLevel; config?: { transactionLimit?: number; includeNotes?: boolean } }>(`/api/v1/personal/sharing/${nextFamilyId}`),
+      apiRequest<FamilyPersonalSharingEntry[]>(`/api/v1/families/${nextFamilyId}/personal-sharing`)
+    ]);
+
+    setSharingLevel(setting.sharingLevel);
+    setSharingTransactionLimit(setting.config?.transactionLimit ?? 10);
+    setSharingIncludeNotes(setting.config?.includeNotes === true);
+    setFamilySharing(sharing);
+  }
+
   useEffect(() => {
     const firstParentId = categoryParents[0]?.id ?? "";
     setSelectedParentCategoryId((current) =>
@@ -137,19 +175,23 @@ export function PersonalAccountingView() {
       setLoading(true);
       setQueuedTransactions(readOfflinePersonalQueue());
       try {
-        const [loadedAccounts, loadedCategories] = await Promise.all([
+        const [loadedAccounts, loadedCategories, familiesResponse] = await Promise.all([
           apiRequest<PersonalAccount[]>("/api/v1/personal/accounts"),
-          apiRequest<PersonalCategory[]>("/api/v1/personal/categories")
+          apiRequest<PersonalCategory[]>("/api/v1/personal/categories"),
+          apiRequest<FamiliesResponse>("/api/v1/families")
         ]);
         if (cancelled) return;
         setAccounts(loadedAccounts);
         setCategories(loadedCategories);
+        const family = familiesResponse.families[0];
+        setFamilyId(family?.id ?? "");
         const firstAccountId = loadedAccounts[0]?.id ?? "";
         setSelectedAccountId(firstAccountId);
         if (firstAccountId) {
           const loadedTransactions = await apiRequest<PersonalTransaction[]>(`/api/v1/personal/accounts/${firstAccountId}/transactions`);
           if (!cancelled) setTransactions(loadedTransactions);
         }
+        if (family) await loadSharing(family.id);
       } catch (loadError) {
         if (!cancelled) setError(errorMessage(loadError));
       } finally {
@@ -328,6 +370,8 @@ export function PersonalAccountingView() {
   }
 
   async function handleSyncQueue() {
+    if (syncInFlightRef.current) return;
+
     const queue = readOfflinePersonalQueue();
     if (!online) {
       setNotice("請恢復連線後再同步。");
@@ -337,18 +381,64 @@ export function PersonalAccountingView() {
       setNotice("沒有待同步交易。");
       return;
     }
+    syncInFlightRef.current = true;
     setSyncing(true);
     setError("");
     try {
-      await apiRequest<{ transactions: PersonalTransaction[] }>("/api/v1/personal/offline-sync", { method: "POST", body: JSON.stringify({ transactions: queue }) });
-      clearOfflinePersonalQueue();
-      setQueuedTransactions([]);
+      const result = await apiRequest<{ transactions: PersonalTransaction[] }>("/api/v1/personal/offline-sync", { method: "POST", body: JSON.stringify({ transactions: queue }) });
+      const syncedClientMutationIds = result.transactions
+        .map((transaction) => transaction.clientMutationId)
+        .filter((clientMutationId): clientMutationId is string => Boolean(clientMutationId));
+      setQueuedTransactions(removeSyncedOfflinePersonalTransactions(syncedClientMutationIds));
       await loadAccounts(selectedAccountId);
       setNotice("離線交易已同步。");
     } catch (syncError) {
       setError(errorMessage(syncError));
     } finally {
+      syncInFlightRef.current = false;
       setSyncing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!online || queuedTransactions.length === 0) return;
+
+    void handleSyncQueue();
+  }, [online, queuedTransactions.length]);
+
+  async function handleUpdateSharing(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!online) {
+      setNotice("分享設定需要網路連線。");
+      return;
+    }
+    if (!familyId) {
+      setError("請先建立或加入家庭。");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+    try {
+      await apiRequest(`/api/v1/personal/sharing/${familyId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          sharingLevel,
+          config:
+            sharingLevel === "partial_transactions"
+              ? {
+                  transactionLimit: sharingTransactionLimit,
+                  includeNotes: sharingIncludeNotes
+                }
+              : {}
+        })
+      });
+      await loadSharing(familyId);
+      setNotice("分享設定已更新。");
+    } catch (saveError) {
+      setError(errorMessage(saveError));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -434,6 +524,63 @@ export function PersonalAccountingView() {
           </div>
         </section>
       </div>
+
+      <section className="panel" style={{ marginTop: "1rem" }}>
+        <h2>分享設定</h2>
+        <form onSubmit={(event) => void handleUpdateSharing(event)} style={{ display: "grid", gap: "0.75rem", marginBottom: "1rem" }}>
+          <select value={sharingLevel} onChange={(event) => setSharingLevel(event.target.value as PersonalSharingLevel)} disabled={!online || !familyId}>
+            <option value="none">不分享</option>
+            <option value="balance_only">只分享總餘額</option>
+            <option value="category_summary">分類統計</option>
+            <option value="partial_transactions">部分交易</option>
+            <option value="full">完整帳本</option>
+          </select>
+          <label>
+            <small>部分交易筆數</small>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={sharingTransactionLimit}
+              onChange={(event) => setSharingTransactionLimit(Number(event.target.value))}
+              disabled={!online || sharingLevel !== "partial_transactions"}
+            />
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <input
+              type="checkbox"
+              checked={sharingIncludeNotes}
+              onChange={(event) => setSharingIncludeNotes(event.target.checked)}
+              disabled={!online || sharingLevel !== "partial_transactions"}
+            />
+            <small>包含備註</small>
+          </label>
+          <button type="submit" disabled={saving || !online || !familyId}>儲存分享設定</button>
+        </form>
+        <div className="module-list">
+          {familySharing.map((entry) => (
+            <div key={entry.userId} className="module-row">
+              <div>
+                <span>{entry.displayName}</span>
+                <small>
+                  {sharingLevelLabels[entry.sharingLevel]}
+                  {entry.totalBalance !== undefined ? ` / ${formatCurrency(entry.totalBalance)}` : ""}
+                </small>
+                {entry.accounts?.length ? (
+                  <small>{entry.accounts.map((account) => `${account.name} ${formatCurrency(account.balance)}`).join("、")}</small>
+                ) : null}
+                {entry.categorySummaries?.length ? (
+                  <small>{entry.categorySummaries.map((summary) => `${summary.category} ${formatCurrency(summary.expense || summary.income)}`).join("、")}</small>
+                ) : null}
+                {entry.transactions?.length ? (
+                  <small>{entry.transactions.map((transaction) => `${transaction.type === "income" ? "+" : "-"}${formatCurrency(transaction.amount)} ${transaction.note ?? transaction.category ?? ""}`).join("、")}</small>
+                ) : null}
+              </div>
+            </div>
+          ))}
+          {!loading && familySharing.length === 0 && <p className="muted">尚未取得家庭分享摘要。</p>}
+        </div>
+      </section>
 
       <section className="panel" style={{ marginTop: "1rem" }}>
         <h2>分類管理</h2>

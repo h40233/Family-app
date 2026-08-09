@@ -1,15 +1,22 @@
 import { notifyBudgetOverages } from "@/server/budgets";
 import { usesDatabaseRuntime } from "@/server/data-source";
-import { prisma } from "@/server/db/prisma";
+import { prisma, type Prisma } from "@/server/db/prisma";
 import { createId, getMemoryStore, nowIso } from "@/server/store";
-import { MoneyTransactionType as PrismaMoneyTransactionType } from "@prisma/client";
+import {
+  MoneyTransactionType as PrismaMoneyTransactionType,
+  SharingLevel as PrismaSharingLevel
+} from "@prisma/client";
 import type {
   CreatePersonalAccountInput,
   CreatePersonalCategoryInput,
   CreatePersonalTransactionInput,
   DeletePersonalCategoryInput,
+  FamilyPersonalSharingEntry,
   PersonalAccount,
   PersonalCategory,
+  PersonalSharingConfig,
+  PersonalSharingLevel,
+  PersonalSharingSetting,
   PersonalTransaction
 } from "./types";
 
@@ -27,6 +34,128 @@ type CategoryRecord = {
   updatedAt: Date | string;
   parent?: { id: string; name: string } | null;
 };
+
+type SharingMember = {
+  userId: string;
+  displayName: string;
+};
+
+type PersonalSharingSettingInput = {
+  userId: string;
+  familyId: string;
+  sharingLevel: PersonalSharingLevel;
+  config?: PersonalSharingConfig;
+};
+
+const prismaSharingLevels: Record<PersonalSharingLevel, PrismaSharingLevel> = {
+  none: PrismaSharingLevel.NONE,
+  balance_only: PrismaSharingLevel.BALANCE_ONLY,
+  category_summary: PrismaSharingLevel.CATEGORY_SUMMARY,
+  partial_transactions: PrismaSharingLevel.PARTIAL_TRANSACTIONS,
+  full: PrismaSharingLevel.FULL
+};
+
+const sharingLevels = new Set<PersonalSharingLevel>([
+  "none",
+  "balance_only",
+  "category_summary",
+  "partial_transactions",
+  "full"
+]);
+
+export async function getPersonalSharingSetting(input: {
+  userId: string;
+  familyId: string;
+}): Promise<PersonalSharingSetting> {
+  await assertFamilyMembership(input.userId, input.familyId);
+
+  if (usesDatabaseRuntime("money")) {
+    const setting = await prisma.personalSharingSetting.findUnique({
+      where: { userId_familyId: { userId: input.userId, familyId: input.familyId } }
+    });
+
+    return setting ? toPersonalSharingSetting(setting) : defaultPersonalSharingSetting(input.userId, input.familyId);
+  }
+
+  return (
+    getMemoryStore().personalSharingSettings.find(
+      (setting) => setting.userId === input.userId && setting.familyId === input.familyId
+    ) ?? defaultPersonalSharingSetting(input.userId, input.familyId)
+  );
+}
+
+export async function updatePersonalSharingSetting(
+  input: PersonalSharingSettingInput
+): Promise<PersonalSharingSetting> {
+  if (!sharingLevels.has(input.sharingLevel)) {
+    throw new Error("Sharing level is invalid.");
+  }
+
+  await assertFamilyMembership(input.userId, input.familyId);
+  const config = sanitizePersonalSharingConfig(input.config);
+
+  if (usesDatabaseRuntime("money")) {
+    const setting = await prisma.personalSharingSetting.upsert({
+      where: { userId_familyId: { userId: input.userId, familyId: input.familyId } },
+      update: {
+        sharingLevel: prismaSharingLevels[input.sharingLevel],
+        config: config as Prisma.JsonObject
+      },
+      create: {
+        userId: input.userId,
+        familyId: input.familyId,
+        sharingLevel: prismaSharingLevels[input.sharingLevel],
+        config: config as Prisma.JsonObject
+      }
+    });
+
+    return toPersonalSharingSetting(setting);
+  }
+
+  const store = getMemoryStore();
+  const existing = store.personalSharingSettings.find(
+    (setting) => setting.userId === input.userId && setting.familyId === input.familyId
+  );
+  const updatedAt = nowIso();
+
+  if (existing) {
+    existing.sharingLevel = input.sharingLevel;
+    existing.config = config;
+    existing.updatedAt = updatedAt;
+    return existing;
+  }
+
+  const setting: PersonalSharingSetting = {
+    id: createId("personal_sharing"),
+    userId: input.userId,
+    familyId: input.familyId,
+    sharingLevel: input.sharingLevel,
+    config,
+    updatedAt
+  };
+
+  store.personalSharingSettings.push(setting);
+  return setting;
+}
+
+export async function listFamilyPersonalSharing(input: {
+  viewerUserId: string;
+  familyId: string;
+}): Promise<FamilyPersonalSharingEntry[]> {
+  await assertFamilyMembership(input.viewerUserId, input.familyId);
+  const members = await listSharingMembers(input.familyId);
+  const settings = await listPersonalSharingSettingsForFamily(input.familyId);
+
+  return Promise.all(
+    members.map((member) =>
+      buildFamilyPersonalSharingEntry(
+        member,
+        settings.find((setting) => setting.userId === member.userId) ??
+          defaultPersonalSharingSetting(member.userId, input.familyId)
+      )
+    )
+  );
+}
 
 export async function listPersonalAccounts(userId: string): Promise<PersonalAccount[]> {
   if (usesDatabaseRuntime("money")) {
@@ -293,6 +422,8 @@ export async function listPersonalTransactions(input: {
 export async function createPersonalTransaction(
   input: CreatePersonalTransactionInput
 ): Promise<PersonalTransaction> {
+  validateTransactionAmount(input.amount);
+
   if (usesDatabaseRuntime("money")) {
     return createDatabasePersonalTransaction(input);
   }
@@ -548,6 +679,322 @@ async function listFamilyIdsForUser(userId: string) {
     .map((member) => member.familyId);
 }
 
+async function assertFamilyMembership(userId: string, familyId: string) {
+  if (usesDatabaseRuntime("money")) {
+    const member = await prisma.familyMember.findFirst({
+      where: {
+        userId,
+        familyId,
+        deletedAt: null,
+        family: { deletedAt: null }
+      }
+    });
+
+    if (!member) throw new Error("Family not found.");
+    return;
+  }
+
+  const member = getMemoryStore().familyMembers.find(
+    (item) => item.userId === userId && item.familyId === familyId
+  );
+
+  if (!member) throw new Error("Family not found.");
+}
+
+async function listSharingMembers(familyId: string): Promise<SharingMember[]> {
+  if (usesDatabaseRuntime("money")) {
+    const members = await prisma.familyMember.findMany({
+      where: {
+        familyId,
+        deletedAt: null,
+        family: { deletedAt: null }
+      },
+      include: { user: true },
+      orderBy: { joinedAt: "asc" }
+    });
+
+    return members.map((member) => ({
+      userId: member.userId,
+      displayName: member.user.name
+    }));
+  }
+
+  return getMemoryStore().familyMembers
+    .filter((member) => member.familyId === familyId)
+    .map((member) => ({
+      userId: member.userId,
+      displayName: member.displayName
+    }));
+}
+
+async function listPersonalSharingSettingsForFamily(
+  familyId: string
+): Promise<PersonalSharingSetting[]> {
+  if (usesDatabaseRuntime("money")) {
+    const rows = await prisma.personalSharingSetting.findMany({
+      where: { familyId }
+    });
+
+    return rows.map(toPersonalSharingSetting);
+  }
+
+  return getMemoryStore().personalSharingSettings.filter(
+    (setting) => setting.familyId === familyId
+  );
+}
+
+async function buildFamilyPersonalSharingEntry(
+  member: SharingMember,
+  setting: PersonalSharingSetting
+): Promise<FamilyPersonalSharingEntry> {
+  const entry: FamilyPersonalSharingEntry = {
+    userId: member.userId,
+    displayName: member.displayName,
+    sharingLevel: setting.sharingLevel
+  };
+
+  if (setting.sharingLevel === "none") {
+    return entry;
+  }
+
+  const accounts = await listAccountsForSharing(member.userId);
+  const totalBalance = accounts.reduce((sum, account) => sum + account.balance, 0);
+  entry.totalBalance = totalBalance;
+
+  if (setting.sharingLevel === "balance_only") {
+    return entry;
+  }
+
+  const transactions = await listTransactionsForSharing(member.userId, accounts);
+  entry.categorySummaries = summarizePersonalTransactions(transactions);
+
+  if (setting.sharingLevel === "category_summary") {
+    return entry;
+  }
+
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+
+  if (setting.sharingLevel === "partial_transactions") {
+    entry.transactions = filterPartialSharedTransactions(transactions, setting.config).map(
+      (transaction) =>
+        toSharedPersonalTransaction({
+          transaction,
+          accountById,
+          includeAccount: false,
+          includeNotes: setting.config.includeNotes === true
+        })
+    );
+    return entry;
+  }
+
+  entry.accounts = accounts.map((account) => ({
+    id: account.id,
+    name: account.name,
+    type: account.type,
+    balance: account.balance
+  }));
+  entry.transactions = transactions.map((transaction) =>
+    toSharedPersonalTransaction({
+      transaction,
+      accountById,
+      includeAccount: true,
+      includeNotes: true
+    })
+  );
+  return entry;
+}
+
+async function listAccountsForSharing(userId: string) {
+  if (usesDatabaseRuntime("money")) {
+    const accounts = await prisma.personalAccount.findMany({
+      where: { userId, deletedAt: null },
+      orderBy: { createdAt: "asc" }
+    });
+
+    return accounts.map(toPersonalAccount);
+  }
+
+  return getMemoryStore().personalAccounts.filter(
+    (account) => account.userId === userId && !account.deletedAt
+  );
+}
+
+async function listTransactionsForSharing(userId: string, accounts: PersonalAccount[]) {
+  const accountIds = new Set(accounts.map((account) => account.id));
+
+  if (usesDatabaseRuntime("money")) {
+    const transactions = await prisma.personalTransaction.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        accountId: { in: [...accountIds] }
+      },
+      include: { category: { include: { parent: true } } },
+      orderBy: { occurredAt: "desc" }
+    });
+
+    return transactions.map(toPersonalTransaction);
+  }
+
+  return getMemoryStore().personalTransactions
+    .filter((transaction) => transaction.userId === userId && accountIds.has(transaction.accountId))
+    .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+}
+
+function summarizePersonalTransactions(transactions: PersonalTransaction[]) {
+  const summaries = new Map<
+    string,
+    { category: string; income: number; expense: number; transactionCount: number }
+  >();
+
+  for (const transaction of transactions) {
+    const category = transaction.category ?? "Uncategorized";
+    const summary =
+      summaries.get(category) ??
+      {
+        category,
+        income: 0,
+        expense: 0,
+        transactionCount: 0
+      };
+
+    if (transaction.type === "income") {
+      summary.income += transaction.amount;
+    } else {
+      summary.expense += transaction.amount;
+    }
+    summary.transactionCount += 1;
+    summaries.set(category, summary);
+  }
+
+  return [...summaries.values()];
+}
+
+function filterPartialSharedTransactions(
+  transactions: PersonalTransaction[],
+  config: PersonalSharingConfig
+) {
+  let visibleTransactions = transactions;
+
+  if (config.accountIds?.length) {
+    const accountIds = new Set(config.accountIds);
+    visibleTransactions = visibleTransactions.filter((transaction) =>
+      accountIds.has(transaction.accountId)
+    );
+  }
+
+  if (config.categoryIds?.length) {
+    const categoryIds = new Set(config.categoryIds);
+    visibleTransactions = visibleTransactions.filter(
+      (transaction) => transaction.categoryId && categoryIds.has(transaction.categoryId)
+    );
+  }
+
+  return visibleTransactions.slice(0, config.transactionLimit ?? 10);
+}
+
+function toSharedPersonalTransaction(input: {
+  transaction: PersonalTransaction;
+  accountById: Map<string, PersonalAccount>;
+  includeAccount: boolean;
+  includeNotes: boolean;
+}) {
+  const account = input.accountById.get(input.transaction.accountId);
+
+  return {
+    id: input.transaction.id,
+    accountId: input.includeAccount ? input.transaction.accountId : undefined,
+    accountName: input.includeAccount ? account?.name : undefined,
+    type: input.transaction.type,
+    category: input.transaction.category,
+    amount: input.transaction.amount,
+    note: input.includeNotes ? input.transaction.note : undefined,
+    occurredAt: input.transaction.occurredAt
+  };
+}
+
+function defaultPersonalSharingSetting(
+  userId: string,
+  familyId: string
+): PersonalSharingSetting {
+  return {
+    id: "default",
+    userId,
+    familyId,
+    sharingLevel: "none",
+    config: {},
+    updatedAt: nowIso()
+  };
+}
+
+function sanitizePersonalSharingConfig(config: PersonalSharingConfig | undefined) {
+  const sanitized: PersonalSharingConfig = {};
+
+  if (Array.isArray(config?.accountIds)) {
+    sanitized.accountIds = config.accountIds.filter(isNonEmptyString);
+  }
+
+  if (Array.isArray(config?.categoryIds)) {
+    sanitized.categoryIds = config.categoryIds.filter(isNonEmptyString);
+  }
+
+  if (Number.isFinite(config?.transactionLimit)) {
+    sanitized.transactionLimit = Math.max(1, Math.min(100, Math.trunc(config!.transactionLimit!)));
+  }
+
+  if (config?.includeNotes === true) {
+    sanitized.includeNotes = true;
+  }
+
+  return sanitized;
+}
+
+function toPersonalSharingSetting(setting: {
+  id: string;
+  userId: string;
+  familyId: string;
+  sharingLevel: PrismaSharingLevel;
+  config: Prisma.JsonValue;
+  updatedAt: Date;
+}): PersonalSharingSetting {
+  return {
+    id: setting.id,
+    userId: setting.userId,
+    familyId: setting.familyId,
+    sharingLevel: fromPrismaSharingLevel(setting.sharingLevel),
+    config: parsePersonalSharingConfig(setting.config),
+    updatedAt: setting.updatedAt.toISOString()
+  };
+}
+
+function fromPrismaSharingLevel(level: PrismaSharingLevel): PersonalSharingLevel {
+  switch (level) {
+    case PrismaSharingLevel.BALANCE_ONLY:
+      return "balance_only";
+    case PrismaSharingLevel.CATEGORY_SUMMARY:
+      return "category_summary";
+    case PrismaSharingLevel.PARTIAL_TRANSACTIONS:
+      return "partial_transactions";
+    case PrismaSharingLevel.FULL:
+      return "full";
+    case PrismaSharingLevel.NONE:
+    default:
+      return "none";
+  }
+}
+
+function parsePersonalSharingConfig(value: Prisma.JsonValue): PersonalSharingConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return sanitizePersonalSharingConfig(value as PersonalSharingConfig);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 async function findOrCreatePersonalCategory(input: {
   userId: string;
   type: "income" | "expense";
@@ -692,4 +1139,10 @@ function parseUuid(value: string | undefined) {
 
 function toIso(value: Date | string) {
   return typeof value === "string" ? value : value.toISOString();
+}
+
+function validateTransactionAmount(amount: number) {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("Transaction amount must be greater than 0.");
+  }
 }

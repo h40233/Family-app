@@ -38,6 +38,17 @@ export type AdminFamilyListItem = {
   createdAt: string | null;
 };
 
+export type AdminListInput = {
+  search?: string;
+  limit?: number;
+  cursor?: string | null;
+};
+
+export type AdminListResult<T> = {
+  items: T[];
+  nextCursor: string | null;
+};
+
 export async function requireAdmin(request: Request) {
   const user = await requireAuth(request);
 
@@ -124,12 +135,25 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
   };
 }
 
-export async function listAdminUsers(): Promise<AdminUserListItem[]> {
+export async function listAdminUsers(
+  input: AdminListInput = {}
+): Promise<AdminListResult<AdminUserListItem>> {
+  const page = normalizeAdminListInput(input);
+
   if (usesDatabaseRuntime("admin")) {
     const users = await prisma.user.findMany({
-      where: { deletedAt: null },
+      where: {
+        deletedAt: null,
+        OR: page.search
+          ? [
+              { name: { contains: page.search, mode: "insensitive" } },
+              { email: { contains: page.search, mode: "insensitive" } }
+            ]
+          : undefined
+      },
       orderBy: { createdAt: "desc" },
-      take: 100,
+      skip: page.offset,
+      take: page.limit + 1,
       select: {
         id: true,
         name: true,
@@ -142,16 +166,19 @@ export async function listAdminUsers(): Promise<AdminUserListItem[]> {
       }
     });
 
-    return users.map((user) => ({
+    return toAdminPage(
+      users.map((user) => ({
       ...user,
       bannedAt: user.bannedAt?.toISOString() ?? null,
       createdAt: user.createdAt.toISOString()
-    }));
+      })),
+      page
+    );
   }
 
   const adminState = getAdminMemoryState();
 
-  return listMemoryUsers().map((user) => {
+  const users = listMemoryUsers().map((user) => {
     const ban = adminState.bannedUsers[user.id];
 
     return {
@@ -165,14 +192,30 @@ export async function listAdminUsers(): Promise<AdminUserListItem[]> {
       createdAt: null
     };
   });
+
+  return paginateAdminItems(
+    users,
+    page,
+    (user) => [user.id, user.name, user.email ?? ""].join(" ")
+  );
 }
 
-export async function listAdminFamilies(): Promise<AdminFamilyListItem[]> {
+export async function listAdminFamilies(
+  input: AdminListInput = {}
+): Promise<AdminListResult<AdminFamilyListItem>> {
+  const page = normalizeAdminListInput(input);
+
   if (usesDatabaseRuntime("admin")) {
     const families = await prisma.family.findMany({
-      where: { deletedAt: null },
+      where: {
+        deletedAt: null,
+        OR: page.search
+          ? [{ name: { contains: page.search, mode: "insensitive" } }]
+          : undefined
+      },
       orderBy: { createdAt: "desc" },
-      take: 100,
+      skip: page.offset,
+      take: page.limit + 1,
       select: {
         id: true,
         name: true,
@@ -183,19 +226,22 @@ export async function listAdminFamilies(): Promise<AdminFamilyListItem[]> {
       }
     });
 
-    return families.map((family) => ({
-      id: family.id,
-      name: family.name,
-      plan: family.plan.toLowerCase(),
-      ownerUserId: family.ownerUserId,
-      memberCount: family._count.members,
-      createdAt: family.createdAt.toISOString()
-    }));
+    return toAdminPage(
+      families.map((family) => ({
+        id: family.id,
+        name: family.name,
+        plan: family.plan.toLowerCase(),
+        ownerUserId: family.ownerUserId,
+        memberCount: family._count.members,
+        createdAt: family.createdAt.toISOString()
+      })),
+      page
+    );
   }
 
   const store = getMemoryStore();
 
-  return store.families.map((family) => ({
+  const families = store.families.map((family) => ({
     id: family.id,
     name: family.name,
     plan: family.plan,
@@ -205,6 +251,12 @@ export async function listAdminFamilies(): Promise<AdminFamilyListItem[]> {
     memberCount: store.familyMembers.filter((member) => member.familyId === family.id).length,
     createdAt: family.createdAt
   }));
+
+  return paginateAdminItems(
+    families,
+    page,
+    (family) => [family.id, family.name, family.ownerUserId ?? ""].join(" ")
+  );
 }
 
 export async function setUserBan(input: {
@@ -213,6 +265,10 @@ export async function setUserBan(input: {
   banned: boolean;
   reason?: string;
 }) {
+  if (input.banned && !input.reason?.trim()) {
+    throw new Error("Ban reason is required.");
+  }
+
   if (input.actorUserId === input.userId && input.banned) {
     throw new Error("Admins cannot ban their own account.");
   }
@@ -287,6 +343,25 @@ export async function setUserBan(input: {
 }
 
 export async function listAdminAdPlacements() {
+  if (usesDatabaseRuntime("admin")) {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        location: string;
+        enabled: boolean;
+        label: string;
+        updated_at: Date;
+      }>
+    >`
+      SELECT id, name, location, enabled, label, updated_at
+      FROM ad_placements
+      ORDER BY id ASC
+    `;
+
+    return rows.map(toMemoryAdPlacement);
+  }
+
   return getAdminMemoryState().adPlacements;
 }
 
@@ -296,6 +371,57 @@ export async function updateAdminAdPlacement(input: {
   enabled: boolean;
   label?: string;
 }) {
+  if (usesDatabaseRuntime("admin")) {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        location: string;
+        enabled: boolean;
+        label: string;
+        updated_at: Date;
+      }>
+    >`
+      SELECT id, name, location, enabled, label, updated_at
+      FROM ad_placements
+      WHERE id = ${input.placementId}
+      LIMIT 1
+    `;
+    const before = rows[0] ? toMemoryAdPlacement(rows[0]) : null;
+
+    if (!before) {
+      throw new Error("Ad placement was not found.");
+    }
+
+    const updatedRows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        location: string;
+        enabled: boolean;
+        label: string;
+        updated_at: Date;
+      }>
+    >`
+      UPDATE ad_placements
+      SET enabled = ${input.enabled}, label = ${input.label?.trim() || before.label}, updated_at = now()
+      WHERE id = ${input.placementId}
+      RETURNING id, name, location, enabled, label, updated_at
+    `;
+    const updated = toMemoryAdPlacement(updatedRows[0]);
+
+    await writeAdminAuditLog({
+      actorUserId: input.actorUserId,
+      action: "admin.ads.update",
+      resourceType: "ad_placement",
+      resourceId: null,
+      before,
+      after: updated
+    });
+
+    return updated;
+  }
+
   const adminState = getAdminMemoryState();
   const placement = adminState.adPlacements.find((item) => item.id === input.placementId);
 
@@ -413,6 +539,41 @@ function listMemoryUsers(): AuthUser[] {
   return [...usersById.values()];
 }
 
+function normalizeAdminListInput(input: AdminListInput) {
+  const limit = Math.min(Math.max(input.limit ?? 100, 1), 100);
+  const offset = Math.max(Number(input.cursor ?? 0) || 0, 0);
+  const search = input.search?.trim() || undefined;
+
+  return { limit, offset, search };
+}
+
+function paginateAdminItems<T>(
+  items: T[],
+  page: ReturnType<typeof normalizeAdminListInput>,
+  searchableText: (item: T) => string
+): AdminListResult<T> {
+  const filtered = page.search
+    ? items.filter((item) =>
+        searchableText(item).toLowerCase().includes(page.search!.toLowerCase())
+      )
+    : items;
+
+  return toAdminPage(filtered.slice(page.offset), page);
+}
+
+function toAdminPage<T>(
+  items: T[],
+  page: ReturnType<typeof normalizeAdminListInput>
+): AdminListResult<T> {
+  const pageItems = items.slice(0, page.limit);
+  const nextCursor = items.length > page.limit ? String(page.offset + page.limit) : null;
+
+  return {
+    items: pageItems,
+    nextCursor
+  };
+}
+
 function isEnvAdmin(user: AuthUser) {
   return (
     listEnvValues("FAMILY_OS_ADMIN_USER_IDS").includes(user.id) ||
@@ -429,6 +590,24 @@ function listEnvValues(name: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function toMemoryAdPlacement(row: {
+  id: string;
+  name: string;
+  location: string;
+  enabled: boolean;
+  label: string;
+  updated_at: Date;
+}): MemoryAdPlacement {
+  return {
+    id: row.id,
+    name: row.name,
+    location: row.location,
+    enabled: row.enabled,
+    label: row.label,
+    updatedAt: row.updated_at.toISOString()
+  };
 }
 
 function toJsonObject(value: unknown) {

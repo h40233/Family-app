@@ -39,6 +39,21 @@ export function clearOfflinePersonalQueue() {
   window.localStorage.removeItem(storageKey);
 }
 
+export function removeSyncedOfflinePersonalTransactions(clientMutationIds: string[]) {
+  const syncedIds = new Set(clientMutationIds);
+  const remaining = readOfflinePersonalQueue().filter(
+    (transaction) => !syncedIds.has(transaction.clientMutationId)
+  );
+
+  if (remaining.length === 0) {
+    clearOfflinePersonalQueue();
+  } else {
+    writeOfflinePersonalQueue(remaining);
+  }
+
+  return remaining;
+}
+
 export function createClientMutationId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();

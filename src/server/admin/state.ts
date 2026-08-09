@@ -55,7 +55,7 @@ function createInitialAdminMemoryState(): AdminMemoryState {
         id: "dashboard-banner",
         name: "Dashboard banner",
         location: "dashboard",
-        enabled: false,
+        enabled: true,
         label: "MVP house ad",
         updatedAt
       },
@@ -63,8 +63,16 @@ function createInitialAdminMemoryState(): AdminMemoryState {
         id: "reports-inline",
         name: "Reports inline",
         location: "reports",
-        enabled: false,
+        enabled: true,
         label: "MVP sponsor slot",
+        updatedAt
+      },
+      {
+        id: "route-interstitial",
+        name: "Route interstitial",
+        location: "route-change",
+        enabled: true,
+        label: "MVP route sponsor",
         updatedAt
       }
     ]
