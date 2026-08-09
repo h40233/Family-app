@@ -1,11 +1,18 @@
 import type { AuthUser } from "@/server/auth";
 import type { Family, FamilyMember } from "@/server/families";
 import type { FundTransaction, SharedFund } from "@/server/funds";
-import type { PersonalAccount, PersonalCategory, PersonalTransaction } from "@/server/money";
+import type {
+  PersonalAccount,
+  PersonalCategory,
+  PersonalSharingSetting,
+  PersonalTransaction
+} from "@/server/money";
 import type { AppNotification, PushSubscriptionRecord } from "@/server/notifications";
 import type { ResourcePermissionOverride } from "@/server/permissions";
 import type { PointBalance, PointLedgerEntry } from "@/server/points";
+import type { BillingWebhookEventRecord } from "@/server/billing";
 import type { CheckoutSession } from "@/server/plans";
+import type { UserPreferences } from "@/server/preferences";
 import type { Budget } from "@/server/budgets";
 import { devFixtureIds, devFixtureTimestamp } from "@/server/dev-fixtures";
 import type { TaskCompletion, TaskSummary } from "@/server/tasks";
@@ -18,6 +25,7 @@ type MemoryStore = {
   personalAccounts: PersonalAccount[];
   categories: PersonalCategory[];
   personalTransactions: PersonalTransaction[];
+  personalSharingSettings: PersonalSharingSetting[];
   budgets: Budget[];
   sharedFunds: SharedFund[];
   fundTransactions: FundTransaction[];
@@ -28,6 +36,8 @@ type MemoryStore = {
   pointBalances: PointBalance[];
   pointLedger: PointLedgerEntry[];
   checkoutSessions: CheckoutSession[];
+  billingWebhookEvents: BillingWebhookEventRecord[];
+  userPreferences: UserPreferences[];
   wishes: Wish[];
   wishPriceProposals: WishPriceProposal[];
   wishRedemptions: WishRedemption[];
@@ -216,6 +226,7 @@ function createInitialStore(): MemoryStore {
         updatedAt: timestamp
       }
     ],
+    personalSharingSettings: [],
     budgets: [
       {
         id: devFixtureIds.foodBudget,
@@ -298,6 +309,8 @@ function createInitialStore(): MemoryStore {
     ],
     pointLedger: [],
     checkoutSessions: [],
+    billingWebhookEvents: [],
+    userPreferences: [],
     wishes: [
       {
         id: devFixtureIds.wish5090,

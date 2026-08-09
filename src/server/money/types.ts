@@ -43,6 +43,64 @@ export type PersonalTransaction = {
   updatedAt: string;
 };
 
+export type PersonalSharingLevel =
+  | "none"
+  | "balance_only"
+  | "category_summary"
+  | "partial_transactions"
+  | "full";
+
+export type PersonalSharingConfig = {
+  accountIds?: string[];
+  categoryIds?: string[];
+  transactionLimit?: number;
+  includeNotes?: boolean;
+};
+
+export type PersonalSharingSetting = {
+  id: string;
+  userId: string;
+  familyId: string;
+  sharingLevel: PersonalSharingLevel;
+  config: PersonalSharingConfig;
+  updatedAt: string;
+};
+
+export type SharedPersonalCategorySummary = {
+  category: string;
+  income: number;
+  expense: number;
+  transactionCount: number;
+};
+
+export type SharedPersonalTransaction = {
+  id: string;
+  accountId?: string;
+  accountName?: string;
+  type: MoneyTransactionType;
+  category?: string;
+  amount: number;
+  note?: string;
+  occurredAt: string;
+};
+
+export type SharedPersonalAccount = {
+  id: string;
+  name: string;
+  type: PersonalAccount["type"];
+  balance: number;
+};
+
+export type FamilyPersonalSharingEntry = {
+  userId: string;
+  displayName: string;
+  sharingLevel: PersonalSharingLevel;
+  totalBalance?: number;
+  accounts?: SharedPersonalAccount[];
+  categorySummaries?: SharedPersonalCategorySummary[];
+  transactions?: SharedPersonalTransaction[];
+};
+
 export type CreatePersonalAccountInput = {
   userId: string;
   name: string;

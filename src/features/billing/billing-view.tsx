@@ -104,7 +104,7 @@ export function BillingView() {
         </div>
       </section>
 
-      <ThemePicker canUseMultipleThemes={Boolean(plan?.limits.canUseMultipleThemes)} />
+      <ThemePicker familyId={familyId} canUseMultipleThemes={Boolean(plan?.limits.canUseMultipleThemes)} />
     </>
   );
 }

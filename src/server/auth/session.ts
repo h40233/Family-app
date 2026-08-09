@@ -71,11 +71,11 @@ export async function getCurrentUser(request: Request): Promise<AuthUser | null>
     return cookieSession;
   }
 
-  if (request.headers.has("x-family-os-user-id")) {
+  if (allowsDevelopmentAuthHeaders() && request.headers.has("x-family-os-user-id")) {
     return await userFromHeaders(request);
   }
 
-  if (usesDatabaseRuntime("auth")) {
+  if (usesDatabaseRuntime("auth") || !allowsDevelopmentAuthHeaders()) {
     return null;
   }
 
@@ -95,9 +95,10 @@ export async function requireAuth(request: Request): Promise<AuthUser> {
 export async function register(input: RegisterInput): Promise<AuthSession> {
   if (!input.displayName?.trim()) throw new Error("Display name is required.");
   if (!input.email?.trim()) throw new Error("Email is required.");
-  if (!input.password || input.password.length < 4) {
-    throw new Error("Password must be at least 4 characters.");
+  if (!input.password || input.password.length < 8) {
+    throw new Error("Password must be at least 8 characters.");
   }
+  requireDatabaseAuthRuntimeInProduction();
 
   if (usesDatabaseRuntime("auth")) {
     const existing = await prisma.user.findUnique({
@@ -136,6 +137,7 @@ export async function register(input: RegisterInput): Promise<AuthSession> {
 export async function login(input: LoginInput): Promise<AuthSession> {
   if (!input.email?.trim()) throw new Error("Email is required.");
   if (!input.password) throw new Error("Password is required.");
+  requireDatabaseAuthRuntimeInProduction();
 
   if (usesDatabaseRuntime("auth")) {
     const user = await prisma.user.findUnique({
@@ -165,6 +167,7 @@ export async function childLogin(
   if (!input.familyCode?.trim()) throw new Error("Family code is required.");
   if (!input.username?.trim()) throw new Error("Username is required.");
   if (!input.pin) throw new Error("PIN is required.");
+  requireDatabaseAuthRuntimeInProduction();
 
   if (usesDatabaseRuntime("auth")) {
     const member =
@@ -347,6 +350,10 @@ async function userFromCookie(request: Request) {
     return toAuthUser(session.user);
   }
 
+  if (!allowsDevelopmentAuthHeaders()) {
+    return null;
+  }
+
   const session = getAuthSessionStore().sessions.find((item) => item.token === token);
   if (!session) return null;
 
@@ -471,4 +478,14 @@ function serializeCookie(
   parts.push(`SameSite=${options.sameSite}`);
 
   return parts.join("; ");
+}
+
+function allowsDevelopmentAuthHeaders() {
+  return process.env.NODE_ENV !== "production";
+}
+
+function requireDatabaseAuthRuntimeInProduction() {
+  if (process.env.NODE_ENV === "production" && !usesDatabaseRuntime("auth")) {
+    throw new Error("Production auth requires database runtime.");
+  }
 }

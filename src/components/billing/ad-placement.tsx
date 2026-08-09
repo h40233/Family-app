@@ -3,28 +3,19 @@
 import { useEffect, useState } from "react";
 
 type Placement = "dashboard-feed" | "reports-bottom";
-type ApiEnvelope<T> = { data: T };
+type ApiEnvelope<T> = { data?: T; error?: { message?: string } };
 type FamiliesResponse = { families: Array<{ id: string; name: string }> };
-type PlanStatus = {
-  plan: "free" | "paid";
-  limits: { hasAds: boolean };
-};
-
-const placementCopy: Record<Placement, { title: string; body: string; action: string }> = {
-  "dashboard-feed": {
-    title: "升級後可移除廣告",
-    body: "讓任務、點數、記帳與願望管理保持更安靜的使用體驗。",
-    action: "升級"
-  },
-  "reports-bottom": {
-    title: "解鎖完整報表",
-    body: "付費家庭可使用匯出、長期歷史、進階報表，並移除廣告。",
-    action: "查看方案"
-  }
+type FamilyAd = {
+  placement: Placement;
+  label: string;
+  title: string;
+  body: string;
+  action: string;
+  actionUrl: string;
 };
 
 export function AdPlacement({ placement }: { placement: Placement }) {
-  const [visible, setVisible] = useState(false);
+  const [ad, setAd] = useState<FamilyAd | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,40 +25,41 @@ export function AdPlacement({ placement }: { placement: Placement }) {
       const family = families.families[0];
       if (!family) return;
 
-      const plan = await fetchData<PlanStatus>(
-        `/api/v1/families/${family.id}/plan/limits`
+      const response = await fetchData<{ ad: FamilyAd | null }>(
+        `/api/v1/families/${family.id}/ads?placement=${encodeURIComponent(placement)}`
       );
-      if (!cancelled) setVisible(plan.limits.hasAds);
+      if (!cancelled) setAd(response.ad);
     }
 
     void load().catch(() => {
-      if (!cancelled) setVisible(false);
+      if (!cancelled) setAd(null);
     });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [placement]);
 
-  if (!visible) return null;
-
-  const copy = placementCopy[placement];
+  if (!ad) return null;
 
   return (
     <aside className={`ad-placement ad-placement-${placement}`} aria-label="贊助內容">
       <div>
-        <span className="ad-label">贊助內容</span>
-        <strong>{copy.title}</strong>
-        <p>{copy.body}</p>
+        <span className="ad-label">{ad.label}</span>
+        <strong>{ad.title}</strong>
+        <p>{ad.body}</p>
       </div>
-      <a href="/billing">{copy.action}</a>
+      <a href={ad.actionUrl}>{ad.action}</a>
     </aside>
   );
 }
 
 async function fetchData<T>(url: string): Promise<T> {
   const response = await fetch(url);
-  const body = (await response.json()) as ApiEnvelope<T>;
-  if (!response.ok) throw new Error("請求失敗。");
-  return body.data;
+  const body = (await response.json().catch(() => ({}))) as ApiEnvelope<T>;
+  if (!response.ok || body.error) {
+    throw new Error(body.error?.message ?? "請求失敗。");
+  }
+
+  return body.data as T;
 }

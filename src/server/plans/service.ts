@@ -1,5 +1,9 @@
 import type { FamilyPlan } from "@/server/families";
-import { getBillingProvider, type BillingWebhookEvent } from "@/server/billing";
+import {
+  getBillingProvider,
+  type BillingWebhookEvent,
+  type BillingWebhookEventRecord
+} from "@/server/billing";
 import { PlanType } from "@prisma/client";
 import { usesDatabaseRuntime } from "@/server/data-source";
 import { prisma } from "@/server/db/prisma";
@@ -99,12 +103,18 @@ export async function createCheckoutSession(input: {
     plan: "paid"
   });
 
-  if (providerSession.status === "completed") {
-    await updateFamilyPlan(input.familyId, "paid");
+  if (usesDatabaseRuntime("plans")) {
+    await recordDatabaseCheckoutSession(providerSession);
+
+    if (providerSession.status === "completed") {
+      await updateFamilyPlan(input.familyId, "paid");
+    }
+
+    return providerSession;
   }
 
-  if (usesDatabaseRuntime("plans")) {
-    return providerSession;
+  if (providerSession.status === "completed") {
+    await updateFamilyPlan(input.familyId, "paid");
   }
 
   getMemoryStore().checkoutSessions.push(providerSession);
@@ -114,7 +124,7 @@ export async function createCheckoutSession(input: {
 export async function handleBillingWebhook(input: {
   rawBody: string;
   signature: string | null;
-}): Promise<BillingWebhookEvent & { applied: true }> {
+}): Promise<BillingWebhookEvent & { applied: boolean; duplicate?: boolean; providerEventId: string }> {
   const provider = getBillingProvider();
   const isValid = await provider.validateWebhookSignature(input);
   if (!isValid) {
@@ -122,12 +132,29 @@ export async function handleBillingWebhook(input: {
   }
 
   const event = await provider.parseWebhookEvent(input.rawBody);
+  const providerEventId = event.providerEventId ?? deriveBillingProviderEventId(event);
+
+  if (await hasProcessedBillingWebhookEvent(event.provider, providerEventId)) {
+    return { ...event, providerEventId, applied: false, duplicate: true };
+  }
 
   if (event.type === "checkout.completed" || event.type === "subscription.cancelled") {
     await updateFamilyPlan(event.familyId, event.plan);
   }
 
-  return { ...event, applied: true };
+  await recordBillingWebhookEvent({
+    id: `${event.provider}_${providerEventId}`,
+    provider: event.provider,
+    providerEventId,
+    eventType: event.type,
+    familyId: event.familyId,
+    plan: event.plan,
+    providerSessionId: event.providerSessionId,
+    rawBody: input.rawBody,
+    processedAt: nowIso()
+  });
+
+  return { ...event, providerEventId, applied: true };
 }
 
 export async function updateFamilyPlan(
@@ -239,6 +266,91 @@ function statusForUsage(value: number, limit: number | null): PlanLimitStatus {
   if (value >= limit) return "blocked";
   if (value >= Math.ceil(limit * 0.8)) return "warning";
   return "ok";
+}
+
+async function hasProcessedBillingWebhookEvent(provider: string, providerEventId: string) {
+  if (usesDatabaseRuntime("plans")) {
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id
+      FROM billing_webhook_events
+      WHERE provider = ${provider} AND provider_event_id = ${providerEventId}
+      LIMIT 1
+    `;
+
+    return rows.length > 0;
+  }
+
+  return getMemoryStore().billingWebhookEvents.some(
+    (event) => event.provider === provider && event.providerEventId === providerEventId
+  );
+}
+
+async function recordBillingWebhookEvent(event: BillingWebhookEventRecord) {
+  if (usesDatabaseRuntime("plans")) {
+    await prisma.$executeRaw`
+      INSERT INTO billing_webhook_events (
+        provider,
+        provider_event_id,
+        event_type,
+        family_id,
+        provider_session_id,
+        plan,
+        raw_body,
+        processed_at
+      )
+      VALUES (
+        ${event.provider},
+        ${event.providerEventId},
+        ${event.eventType},
+        ${event.familyId}::uuid,
+        ${event.providerSessionId ?? null},
+        ${event.plan},
+        ${event.rawBody},
+        ${new Date(event.processedAt)}
+      )
+    `;
+    return;
+  }
+
+  getMemoryStore().billingWebhookEvents.push(event);
+}
+
+async function recordDatabaseCheckoutSession(session: CheckoutSession) {
+  await prisma.$executeRaw`
+    INSERT INTO billing_checkout_sessions (
+      family_id,
+      provider,
+      provider_session_id,
+      plan,
+      status,
+      checkout_url,
+      created_at
+    )
+    VALUES (
+      ${session.familyId}::uuid,
+      ${session.provider},
+      ${session.providerSessionId ?? null},
+      ${session.plan}::plan_type,
+      ${session.status},
+      ${session.checkoutUrl},
+      ${new Date(session.createdAt)}
+    )
+    ON CONFLICT (provider, provider_session_id)
+    DO UPDATE SET
+      family_id = EXCLUDED.family_id,
+      plan = EXCLUDED.plan,
+      status = EXCLUDED.status,
+      checkout_url = EXCLUDED.checkout_url
+  `;
+}
+
+function deriveBillingProviderEventId(event: BillingWebhookEvent) {
+  return [
+    event.provider,
+    event.type,
+    event.providerSessionId ?? event.familyId,
+    event.plan
+  ].join(":");
 }
 
 function toFamilyPlan(plan: PlanType): FamilyPlan {

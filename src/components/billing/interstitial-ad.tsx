@@ -3,31 +3,37 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-type ApiEnvelope<T> = { data: T };
+type ApiEnvelope<T> = { data?: T; error?: { message?: string } };
 type FamiliesResponse = { families: Array<{ id: string; name: string }> };
-type PlanStatus = { limits: { hasAds: boolean } };
+type FamilyAd = {
+  label: string;
+  title: string;
+  body: string;
+  action: string;
+  actionUrl: string;
+};
 
 export function InterstitialAd() {
   const pathname = usePathname();
   const firstPath = useRef(pathname);
-  const [hasAds, setHasAds] = useState(false);
+  const [ad, setAd] = useState<FamilyAd | null>(null);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadPlan() {
+    async function loadAd() {
       const families = await fetchData<FamiliesResponse>("/api/v1/families");
       const family = families.families[0];
       if (!family) return;
-      const plan = await fetchData<PlanStatus>(
-        `/api/v1/families/${family.id}/plan/limits`
+      const response = await fetchData<{ ad: FamilyAd | null }>(
+        `/api/v1/families/${family.id}/ads?placement=route-change`
       );
-      if (!cancelled) setHasAds(plan.limits.hasAds);
+      if (!cancelled) setAd(response.ad);
     }
 
-    void loadPlan().catch(() => {
-      if (!cancelled) setHasAds(false);
+    void loadAd().catch(() => {
+      if (!cancelled) setAd(null);
     });
 
     return () => {
@@ -36,22 +42,22 @@ export function InterstitialAd() {
   }, []);
 
   useEffect(() => {
-    if (!hasAds || pathname === firstPath.current) return;
+    if (!ad || pathname === firstPath.current) return;
 
     setVisible(true);
     const timer = window.setTimeout(() => setVisible(false), 1800);
     return () => window.clearTimeout(timer);
-  }, [hasAds, pathname]);
+  }, [ad, pathname]);
 
-  if (!visible) return null;
+  if (!visible || !ad) return null;
 
   return (
     <div className="interstitial-ad" role="status" aria-live="polite">
       <div>
-        <span className="ad-label">贊助內容</span>
-        <strong>免費方案提示</strong>
-        <p>升級 Family Plus 後可移除家庭 App 內的切頁廣告。</p>
-        <a href="/billing">查看方案</a>
+        <span className="ad-label">{ad.label}</span>
+        <strong>{ad.title}</strong>
+        <p>{ad.body}</p>
+        <a href={ad.actionUrl}>{ad.action}</a>
       </div>
     </div>
   );
@@ -59,7 +65,10 @@ export function InterstitialAd() {
 
 async function fetchData<T>(url: string): Promise<T> {
   const response = await fetch(url);
-  const body = (await response.json()) as ApiEnvelope<T>;
-  if (!response.ok) throw new Error("請求失敗。");
-  return body.data;
+  const body = (await response.json().catch(() => ({}))) as ApiEnvelope<T>;
+  if (!response.ok || body.error) {
+    throw new Error(body.error?.message ?? "請求失敗。");
+  }
+
+  return body.data as T;
 }

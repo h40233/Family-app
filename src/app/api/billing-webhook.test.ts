@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getBillingProvider } from "@/server/billing";
 import { getMemoryStore, resetMemoryStore } from "@/server/store";
 import { POST as webhookRoute } from "./v1/billing/webhook/route";
 
@@ -13,6 +14,9 @@ describe("billing webhook route", () => {
 
   afterEach(() => {
     delete process.env.FAMILY_OS_BILLING_WEBHOOK_SECRET;
+    delete process.env.FAMILY_OS_BILLING_PROVIDER;
+    delete process.env.FAMILY_OS_ALLOW_MOCK_BILLING;
+    vi.unstubAllEnvs();
   });
 
   it("applies a provider checkout completion to the family plan", async () => {
@@ -71,6 +75,58 @@ describe("billing webhook route", () => {
     );
 
     expect(goodResponse.status).toBe(200);
+    expect(getMemoryStore().families[0].plan).toBe("free");
+  });
+
+  it("does not allow the mock billing provider in production unless explicitly enabled", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    delete process.env.FAMILY_OS_BILLING_PROVIDER;
+    delete process.env.FAMILY_OS_ALLOW_MOCK_BILLING;
+
+    expect(() => getBillingProvider()).toThrow(
+      "Mock billing provider cannot be used in production."
+    );
+
+    process.env.FAMILY_OS_BILLING_PROVIDER = "mock";
+    process.env.FAMILY_OS_ALLOW_MOCK_BILLING = "true";
+    expect(getBillingProvider().name).toBe("mock");
+  });
+
+  it("skips duplicate provider webhook events", async () => {
+    const body = JSON.stringify({
+      id: "evt_checkout_paid_once",
+      type: "checkout.completed",
+      familyId,
+      plan: "paid",
+      providerSessionId: "mock_session_2"
+    });
+
+    const firstResponse = await webhookRoute(
+      new Request("http://localhost/api/v1/billing/webhook", {
+        method: "POST",
+        body
+      })
+    );
+
+    expect(firstResponse.status).toBe(200);
+    expect(getMemoryStore().families[0].plan).toBe("paid");
+
+    getMemoryStore().families[0].plan = "free";
+    const duplicateResponse = await webhookRoute(
+      new Request("http://localhost/api/v1/billing/webhook", {
+        method: "POST",
+        body
+      })
+    );
+
+    expect(duplicateResponse.status).toBe(200);
+    await expect(duplicateResponse.json()).resolves.toMatchObject({
+      data: {
+        applied: false,
+        duplicate: true,
+        providerEventId: "evt_checkout_paid_once"
+      }
+    });
     expect(getMemoryStore().families[0].plan).toBe("free");
   });
 });

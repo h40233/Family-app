@@ -55,6 +55,7 @@ export const mockBillingProvider: BillingProvider = {
       return {
         type: "checkout.completed",
         provider: "mock",
+        providerEventId: getProviderEventId(body),
         familyId: body.familyId,
         plan: body.plan,
         providerSessionId: body.providerSessionId
@@ -65,6 +66,7 @@ export const mockBillingProvider: BillingProvider = {
       return {
         type: "subscription.cancelled",
         provider: "mock",
+        providerEventId: getProviderEventId(body),
         familyId: body.familyId,
         plan: "free",
         providerSessionId: body.providerSessionId
@@ -74,3 +76,9 @@ export const mockBillingProvider: BillingProvider = {
     throw new Error("Unsupported billing webhook event.");
   }
 };
+
+function getProviderEventId(body: Partial<BillingWebhookEvent> & { id?: unknown }) {
+  if (typeof body.providerEventId === "string") return body.providerEventId;
+  if (typeof body.id === "string") return body.id;
+  return undefined;
+}

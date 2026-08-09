@@ -13,6 +13,7 @@ export type BillingWebhookEvent =
   | {
       type: "checkout.completed";
       provider: string;
+      providerEventId?: string;
       familyId: string;
       plan: FamilyPlan;
       providerSessionId?: string;
@@ -20,10 +21,23 @@ export type BillingWebhookEvent =
   | {
       type: "subscription.cancelled";
       provider: string;
+      providerEventId?: string;
       familyId: string;
       plan: "free";
       providerSessionId?: string;
     };
+
+export type BillingWebhookEventRecord = {
+  id: string;
+  provider: string;
+  providerEventId: string;
+  eventType: BillingWebhookEvent["type"];
+  familyId: string;
+  plan: FamilyPlan;
+  providerSessionId?: string;
+  rawBody: string;
+  processedAt: string;
+};
 
 export type BillingProvider = {
   name: BillingProviderName;

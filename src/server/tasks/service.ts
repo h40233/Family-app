@@ -205,6 +205,7 @@ export async function completeTask(input: CompleteTaskInput): Promise<TaskComple
       relatedEntityId: completion.id,
       note: task.title
     });
+    await createNextRecurringTask(task, input.actorUserId);
   } else if (task.reviewerUserId) {
     await createNotification({
       userId: task.reviewerUserId,
@@ -239,6 +240,9 @@ export async function reviewTask(input: ReviewTaskInput): Promise<TaskCompletion
   if (!completion) {
     throw new Error("Task completion not found.");
   }
+  if (completion.status !== "pending_review") {
+    throw new Error("Task completion has already been reviewed.");
+  }
 
   completion.status = input.approved ? "approved" : "rejected";
   completion.awardedPoints = input.approved ? input.points : 0;
@@ -257,6 +261,9 @@ export async function reviewTask(input: ReviewTaskInput): Promise<TaskCompletion
       relatedEntityId: completion.id,
       note: task.title
     });
+  }
+  if (input.approved) {
+    await createNextRecurringTask(task, input.actorUserId);
   }
 
   return completion;
@@ -292,6 +299,7 @@ async function completeDatabaseTask(
       relatedEntityId: mapped.id,
       note: task.title
     });
+    await createNextRecurringTask(task, input.actorUserId);
   } else if (task.reviewerUserId) {
     await createNotification({
       userId: task.reviewerUserId,
@@ -324,6 +332,9 @@ async function reviewDatabaseTask(
   if (!existing) {
     throw new Error("Task completion not found.");
   }
+  if (existing.status !== PrismaTaskCompletionStatus.PENDING_REVIEW) {
+    throw new Error("Task completion has already been reviewed.");
+  }
 
   const completion = await prisma.taskCompletion.update({
     where: { id: input.completionId },
@@ -350,8 +361,49 @@ async function reviewDatabaseTask(
       note: task.title
     });
   }
+  if (input.approved) {
+    await createNextRecurringTask(task, input.actorUserId);
+  }
 
   return mapped;
+}
+
+async function createNextRecurringTask(task: TaskSummary, actorUserId: string) {
+  const dueAt = nextRecurringDueAt(task.dueAt, task.repeatRule);
+  if (!dueAt) return;
+
+  await createTask({
+    familyId: task.familyId,
+    actorUserId,
+    title: task.title,
+    description: task.description,
+    assigneeIds: task.assigneeIds,
+    maxPoints: task.maxPoints,
+    approvalMode: task.approvalMode,
+    reviewerUserId: task.reviewerUserId,
+    dueAt,
+    repeatRule: task.repeatRule
+  });
+}
+
+function nextRecurringDueAt(dueAt: string | undefined, repeatRule: string | undefined) {
+  if (!repeatRule) return undefined;
+
+  const next = new Date(dueAt ?? nowIso());
+  if (Number.isNaN(next.getTime())) return undefined;
+
+  const normalized = repeatRule.toLowerCase();
+  if (normalized === "daily" || normalized.includes("daily")) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  } else if (normalized === "weekly" || normalized.includes("weekly")) {
+    next.setUTCDate(next.getUTCDate() + 7);
+  } else if (normalized === "monthly" || normalized.includes("monthly")) {
+    next.setUTCMonth(next.getUTCMonth() + 1);
+  } else {
+    return undefined;
+  }
+
+  return next.toISOString();
 }
 
 async function requireTask(input: GetTaskInput) {

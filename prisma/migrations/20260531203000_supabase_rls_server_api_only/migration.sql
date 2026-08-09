@@ -1,6 +1,8 @@
 DO $$
 DECLARE
   table_name text;
+  role_name text;
+  restricted_roles text[] := ARRAY['anon', 'authenticated'];
   table_names text[] := ARRAY[
     'users',
     'families',
@@ -30,9 +32,17 @@ DECLARE
 BEGIN
   FOREACH table_name IN ARRAY table_names LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
-    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM anon, authenticated', table_name);
+    FOREACH role_name IN ARRAY restricted_roles LOOP
+      IF to_regrole(role_name) IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I', table_name, role_name);
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  FOREACH role_name IN ARRAY restricted_roles LOOP
+    IF to_regrole(role_name) IS NOT NULL THEN
+      EXECUTE format('REVOKE USAGE ON SCHEMA public FROM %I', role_name);
+      EXECUTE format('REVOKE CREATE ON SCHEMA public FROM %I', role_name);
+    END IF;
   END LOOP;
 END $$;
-
-REVOKE USAGE ON SCHEMA public FROM anon, authenticated;
-REVOKE CREATE ON SCHEMA public FROM anon, authenticated;

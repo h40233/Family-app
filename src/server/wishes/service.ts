@@ -109,6 +109,7 @@ export async function getWish(input: { familyId: string; wishId: string }): Prom
 
 export async function acceptWish(input: WishMutationInput): Promise<Wish> {
   const wish = await requireWish(input);
+  assertWishFulfiller(wish, input.actorUserId, "update");
   if (usesDatabaseRuntime("wishes")) {
     const next = transitionWish(wish.status, "accept");
     const updated = await updateDatabaseWishStatus(wish, next);
@@ -124,6 +125,7 @@ export async function acceptWish(input: WishMutationInput): Promise<Wish> {
 
 export async function rejectWish(input: WishMutationInput): Promise<Wish> {
   const wish = await requireWish(input);
+  assertWishFulfiller(wish, input.actorUserId, "update");
   if (usesDatabaseRuntime("wishes")) {
     const next = transitionWish(wish.status, "reject");
     const updated = await updateDatabaseWishStatus(wish, next);
@@ -139,6 +141,9 @@ export async function rejectWish(input: WishMutationInput): Promise<Wish> {
 
 export async function proposeWishPrice(input: ProposeWishPriceInput): Promise<WishPriceProposal> {
   const wish = await requireWish(input);
+  assertWishFulfiller(wish, input.actorUserId, "update");
+  validateWishPrice(input.points);
+
   if (usesDatabaseRuntime("wishes")) {
     const nextStatus =
       wish.status === "pricing"
@@ -205,6 +210,8 @@ export async function proposeWishPrice(input: ProposeWishPriceInput): Promise<Wi
 
 export async function approveWishPrice(input: ResolveWishPriceInput): Promise<Wish> {
   const wish = await requireWish(input);
+  assertWishRequester(wish, input.actorUserId, "resolve");
+
   if (usesDatabaseRuntime("wishes")) {
     const proposal = await requireDatabasePendingProposal(input);
     const next =
@@ -254,6 +261,8 @@ export async function approveWishPrice(input: ResolveWishPriceInput): Promise<Wi
 
 export async function rejectWishPrice(input: ResolveWishPriceInput): Promise<Wish> {
   const wish = await requireWish(input);
+  assertWishRequester(wish, input.actorUserId, "resolve");
+
   if (usesDatabaseRuntime("wishes")) {
     await requireDatabasePendingProposal(input);
     const next =
@@ -300,6 +309,8 @@ export async function rejectWishPrice(input: ResolveWishPriceInput): Promise<Wis
 
 export async function redeemWish(input: WishMutationInput): Promise<WishRedemption> {
   const wish = await requireWish(input);
+  assertWishRequester(wish, input.actorUserId, "redeem");
+
   if (usesDatabaseRuntime("wishes")) {
     return redeemDatabaseWish(input, wish);
   }
@@ -353,6 +364,8 @@ export async function redeemWish(input: WishMutationInput): Promise<WishRedempti
 
 export async function completeWish(input: WishMutationInput): Promise<Wish> {
   const wish = await requireWish(input);
+  assertWishFulfiller(wish, input.actorUserId, "complete");
+
   if (usesDatabaseRuntime("wishes")) {
     const next = transitionWish(wish.status, "complete");
     const updated = await prisma.$transaction(async (tx) => {
@@ -414,6 +427,32 @@ async function requireWish(input: WishMutationInput): Promise<Wish> {
   }
 
   return wish;
+}
+
+function assertWishFulfiller(wish: Wish, actorUserId: string, action: "update" | "complete") {
+  if (wish.fulfillerId === actorUserId) return;
+
+  if (action === "complete") {
+    throw new Error("Only the fulfiller can complete this wish.");
+  }
+
+  throw new Error("Only the fulfiller can update this wish.");
+}
+
+function assertWishRequester(wish: Wish, actorUserId: string, action: "resolve" | "redeem") {
+  if (wish.requesterId === actorUserId) return;
+
+  if (action === "redeem") {
+    throw new Error("Only the requester can redeem this wish.");
+  }
+
+  throw new Error("Only the requester can resolve this wish.");
+}
+
+function validateWishPrice(points: number) {
+  if (!Number.isFinite(points) || points <= 0) {
+    throw new Error("Wish price must be greater than 0.");
+  }
 }
 
 function requirePendingProposal(input: ResolveWishPriceInput): WishPriceProposal {

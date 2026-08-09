@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/app-shell/page-header";
 import { useActiveFamily } from "@/features/families/use-active-family";
+import { readOfflinePersonalQueue } from "@/features/money/offline-personal-queue";
+import { useOnlineStatus } from "@/features/money/use-online-status";
 import { apiRequest, errorMessage } from "@/lib/api-client";
 
 type WishStatus = "submitted" | "rejected" | "pricing" | "price_pending_requester" | "active" | "price_change_pending" | "redeemed_pending_fulfillment" | "completed" | "cancelled";
@@ -35,9 +37,11 @@ function wishStatusLabel(status: WishStatus) {
 
 export function WishesMvpView() {
   const activeFamily = useActiveFamily();
+  const online = useOnlineStatus();
   const [wishes, setWishes] = useState<Wish[]>([]);
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [proposalIds, setProposalIds] = useState<Record<string, string>>({});
+  const [queuedTransactions, setQueuedTransactions] = useState(0);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [fulfillerId, setFulfillerId] = useState("");
@@ -55,6 +59,12 @@ export function WishesMvpView() {
     pending: wishes.filter((wish) => wish.status.includes("pending") || wish.status === "submitted").length,
     completed: wishes.filter((wish) => wish.status === "completed").length
   }), [wishes]);
+  const canMutateWishes = online && queuedTransactions === 0;
+  const wishMutationBlockMessage = !online
+    ? "離線時不能修改願望。"
+    : queuedTransactions > 0
+      ? "請先同步個人離線交易，再修改願望。"
+      : "";
 
   const loadWishes = useCallback(async (familyId: string, currentUserId: string) => {
     setLoading(true);
@@ -83,6 +93,23 @@ export function WishesMvpView() {
     void loadWishes(activeFamily.family.id, activeFamily.user.id);
   }, [activeFamily, loadWishes]);
 
+  useEffect(() => {
+    function refreshQueueCount() {
+      setQueuedTransactions(readOfflinePersonalQueue().length);
+    }
+
+    refreshQueueCount();
+    window.addEventListener("storage", refreshQueueCount);
+    window.addEventListener("online", refreshQueueCount);
+    window.addEventListener("focus", refreshQueueCount);
+
+    return () => {
+      window.removeEventListener("storage", refreshQueueCount);
+      window.removeEventListener("online", refreshQueueCount);
+      window.removeEventListener("focus", refreshQueueCount);
+    };
+  }, []);
+
   function replaceWish(nextWish: Wish) {
     setWishes((current) => current.map((wish) => (wish.id === nextWish.id ? nextWish : wish)));
   }
@@ -90,6 +117,10 @@ export function WishesMvpView() {
   async function createWish(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (activeFamily.status !== "ready") return;
+    if (!canMutateWishes) {
+      setMessage(wishMutationBlockMessage);
+      return;
+    }
     if (!title.trim()) return;
     const nextFulfillerId = fulfillerId || activeFamily.user.id;
 
@@ -109,6 +140,10 @@ export function WishesMvpView() {
 
   async function mutateWish(wish: Wish, action: "accept" | "reject" | "redeem" | "complete") {
     if (activeFamily.status !== "ready") return;
+    if (!canMutateWishes) {
+      setMessage(wishMutationBlockMessage);
+      return;
+    }
 
     try {
       const result = await apiRequest<Wish | { wishId: string }>(`/api/v1/families/${activeFamily.family.id}/wishes/${wish.id}/${action}`, { method: "POST" });
@@ -122,6 +157,10 @@ export function WishesMvpView() {
 
   async function proposePrice(wish: Wish) {
     if (activeFamily.status !== "ready") return;
+    if (!canMutateWishes) {
+      setMessage(wishMutationBlockMessage);
+      return;
+    }
     const points = proposalPoints[wish.id] ?? wish.agreedPoints ?? 100;
 
     try {
@@ -139,6 +178,10 @@ export function WishesMvpView() {
 
   async function resolvePrice(wish: Wish, approve: boolean) {
     if (activeFamily.status !== "ready") return;
+    if (!canMutateWishes) {
+      setMessage(wishMutationBlockMessage);
+      return;
+    }
     const proposalId = proposalIds[wish.id];
     if (!proposalId) {
       setMessage("請先提出價格，再同意或駁回。");
@@ -187,7 +230,9 @@ export function WishesMvpView() {
         <article><p>可兌換</p><strong>{stats.active}</strong></article>
         <article><p>待處理</p><strong>{stats.pending}</strong></article>
         <article><p>已完成</p><strong>{stats.completed}</strong></article>
+        <article><p>待同步</p><strong>{queuedTransactions}</strong></article>
       </div>
+      {wishMutationBlockMessage ? <section className="panel" style={{ marginBottom: "1rem" }}><strong>{online ? "同步提醒" : "離線模式"}</strong><p className="muted">{wishMutationBlockMessage}</p></section> : null}
       <div className="content-grid">
         <section className="panel">
           <h2>願望列表</h2>
@@ -207,24 +252,24 @@ export function WishesMvpView() {
                 <div className="topbar-action" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
                   {wish.status === "submitted" ? (
                     <>
-                      <button type="button" onClick={() => void mutateWish(wish, "accept")}>同意</button>
-                      <button type="button" onClick={() => void mutateWish(wish, "reject")} style={{ background: "var(--danger)" }}>駁回</button>
+                      <button type="button" disabled={!canMutateWishes} onClick={() => void mutateWish(wish, "accept")}>同意</button>
+                      <button type="button" disabled={!canMutateWishes} onClick={() => void mutateWish(wish, "reject")} style={{ background: "var(--danger)" }}>駁回</button>
                     </>
                   ) : null}
                   {wish.status === "pricing" || wish.status === "active" ? (
                     <>
-                      <input min={0} type="number" value={proposalPoints[wish.id] ?? wish.agreedPoints ?? 100} onChange={(event) => setProposalPoints((current) => ({ ...current, [wish.id]: Number(event.target.value) }))} style={{ maxWidth: 96 }} />
-                      <button type="button" onClick={() => void proposePrice(wish)}>提出價格</button>
+                      <input min={0} type="number" disabled={!canMutateWishes} value={proposalPoints[wish.id] ?? wish.agreedPoints ?? 100} onChange={(event) => setProposalPoints((current) => ({ ...current, [wish.id]: Number(event.target.value) }))} style={{ maxWidth: 96 }} />
+                      <button type="button" disabled={!canMutateWishes} onClick={() => void proposePrice(wish)}>提出價格</button>
                     </>
                   ) : null}
                   {wish.status === "price_pending_requester" || wish.status === "price_change_pending" ? (
                     <>
-                      <button type="button" onClick={() => void resolvePrice(wish, true)}>同意價格</button>
-                      <button type="button" onClick={() => void resolvePrice(wish, false)} style={{ background: "var(--danger)" }}>駁回價格</button>
+                      <button type="button" disabled={!canMutateWishes} onClick={() => void resolvePrice(wish, true)}>同意價格</button>
+                      <button type="button" disabled={!canMutateWishes} onClick={() => void resolvePrice(wish, false)} style={{ background: "var(--danger)" }}>駁回價格</button>
                     </>
                   ) : null}
-                  {wish.status === "active" ? <button type="button" onClick={() => void mutateWish(wish, "redeem")}>兌換</button> : null}
-                  {wish.status === "redeemed_pending_fulfillment" ? <button type="button" onClick={() => void mutateWish(wish, "complete")}>標記已實現</button> : null}
+                  {wish.status === "active" ? <button type="button" disabled={!canMutateWishes} onClick={() => void mutateWish(wish, "redeem")}>兌換</button> : null}
+                  {wish.status === "redeemed_pending_fulfillment" ? <button type="button" disabled={!canMutateWishes} onClick={() => void mutateWish(wish, "complete")}>標記已實現</button> : null}
                 </div>
               </div>
             ))}
@@ -242,7 +287,7 @@ export function WishesMvpView() {
                 {memberOptions.map((member) => <option key={member.userId} value={member.userId}>{member.displayName}</option>)}
               </select>
             </label>
-            <button type="submit" disabled={loading}>建立願望</button>
+            <button type="submit" disabled={loading || !canMutateWishes}>建立願望</button>
           </form>
         </section>
       </div>
